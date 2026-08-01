@@ -22,11 +22,20 @@ Corner B, 40, 30
 Corner C, 80, -35
 Corner D, 100, 0"""
 
-point_input = st.text_area(
-    "Enter points",
-    value=default_points,
-    help="One point per line. Examples: Corner A, 0, 0 | 10, 20 | Corner A: 0, 0"
-)
+points_col, joins_col = st.columns(2)
+with points_col:
+    point_input = st.text_area(
+        "Enter points",
+        value=default_points,
+        help="One point per line. Examples: Corner A, 0, 0 | 10, 20 | Corner A: 0, 0"
+    )
+
+with joins_col:
+    join_input = st.text_area(
+        "Additional joins",
+        value="",
+        help="Add arbitrary point-to-point joins using the same format as points. Example: Corner A, 0, 0 | Corner C, 80, -35"
+    )
 
 # 2. PARSE THE TEXT INTO X,Y COORDINATES
 points_list = []
@@ -66,6 +75,39 @@ for line_no, raw_line in enumerate(point_input.splitlines(), start=1):
 
 if parse_warnings:
     st.warning("Some lines were ignored. Use a format like 'Corner A, 0, 0' or '0, 0'.")
+
+extra_points = []
+for raw_join in join_input.splitlines():
+    line = raw_join.strip()
+    if not line:
+        continue
+
+    name = f"Join {len(extra_points) + 1}"
+    coord_text = line
+
+    if ":" in line:
+        name_part, coord_text = line.split(":", 1)
+        name = name_part.strip() or name
+        coord_text = coord_text.strip()
+
+    coord_text = coord_text.replace("(", "").replace(")", "")
+    parts = [part.strip() for part in coord_text.replace(";", ",").split(",") if part.strip()]
+
+    if len(parts) >= 2:
+        try:
+            if len(parts) >= 3 and not parts[0].replace(".", "", 1).replace("-", "", 1).isdigit():
+                name = parts[0]
+                x = float(parts[1])
+                y = float(parts[2])
+            else:
+                x = float(parts[0])
+                y = float(parts[1])
+
+            extra_points.append({"x": x, "y": y, "name": name})
+        except ValueError:
+            continue
+
+extra_segments = [(extra_points[i], extra_points[i + 1]) for i in range(len(extra_points) - 1)]
 
 # 4. SORT, CLOSE POLYGON, AND CALCULATE AREA UNITS
 area_sqm = 0.0
@@ -114,6 +156,30 @@ if points_list:
     
     if len(bx_draw) > 0:
         ax.plot(bx_draw, by_draw, 'g-', linewidth=2.5, label='Property Boundary')
+
+        for start_pt, end_pt in extra_segments:
+            ax.plot(
+                [start_pt["x"], end_pt["x"]],
+                [start_pt["y"], end_pt["y"]],
+                'm--',
+                linewidth=1.5,
+                alpha=0.8,
+            )
+
+            join_length = np.sqrt((end_pt["x"] - start_pt["x"]) ** 2 + (end_pt["y"] - start_pt["y"]) ** 2)
+            mid_x = (start_pt["x"] + end_pt["x"]) / 2
+            mid_y = (start_pt["y"] + end_pt["y"]) / 2
+            ax.text(
+                mid_x,
+                mid_y,
+                f"{join_length:.2f} m",
+                color="darkmagenta",
+                fontsize=8,
+                fontweight="bold",
+                bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=0.5),
+                ha="center",
+                va="center",
+            )
         
         # Side dimension overlays
         for i in range(len(bx_draw) - 1):
