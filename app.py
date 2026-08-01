@@ -7,8 +7,15 @@ st.set_page_config(page_title="FMB Generator", layout="wide")
 st.markdown("### Field Measurement Book (FMB) Generator")
 st.write("Enter your points in a natural coordinate format. Each line can be a point name and x/y pair, such as 'Corner A, 0, 0'.")
 
+st.markdown("#### 📝 Plot Annotation")
+col1, col2 = st.columns([3, 1])
+with col1:
+    center_text = st.text_input("Center text", value="", placeholder="Enter text to show in the middle of the plot")
+with col2:
+    show_points = st.checkbox("Show points", value=True)
+    
 # 1. NATURAL POINT INPUT
-st.subheader("📍 Point Input")
+st.markdown("#### 📍 Point Input")
 
 default_points = """Corner A, 0, 0
 Corner B, 40, 30
@@ -59,13 +66,6 @@ for line_no, raw_line in enumerate(point_input.splitlines(), start=1):
 
 if parse_warnings:
     st.warning("Some lines were ignored. Use a format like 'Corner A, 0, 0' or '0, 0'.")
-
-st.subheader("📝 Plot Annotation")
-col1, col2 = st.columns([3, 1])
-with col1:
-    center_text = st.text_input("Center text", value="", placeholder="Enter text to show in the middle of the plot")
-with col2:
-    show_points = st.checkbox("Show points", value=True)
 
 # 4. SORT, CLOSE POLYGON, AND CALCULATE AREA UNITS
 area_sqm = 0.0
@@ -167,5 +167,5 @@ if center_text.strip():
     ax.text(0.5, 0.5, center_text.strip(), transform=ax.transAxes, ha='center', va='center', fontsize=12, fontweight='bold', color='navy')
 
 # 6. RENDER THE SIMPLIFIED INTERACTIVE SKETCH
-st.subheader("🗺️ Live FMB Map")
+st.markdown("#### 🗺️ Live FMB Map")
 st.pyplot(fig)
