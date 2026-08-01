@@ -1,0 +1,196 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "Segoe UI", Roboto, sans-serif;
+  background: #f4f7fb;
+  color: #132238;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f4f7fb 0%, #eaf2ff 100%);
+}
+
+.app-shell {
+  display: flex;
+  gap: 16px;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.sidebar {
+  width: 320px;
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 36px rgba(15, 30, 50, 0.08);
+}
+
+.sidebar-top {
+  padding-bottom: 6px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.74;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 1.3rem;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.94rem;
+  line-height: 1.5;
+  color: #53657b;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-group label,
+.checkbox-row {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.compact-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  border: 1px solid #d2dce9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: #132238;
+  background: white;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 92px;
+}
+
+.action-row {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: #173049;
+  background: #e7eef8;
+}
+
+button:hover {
+  background: #d7e3f4;
+}
+
+.warnings,
+.status-message {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+
+.warnings {
+  background: #fff6dd;
+  color: #8c6113;
+  border: 1px solid #f7d68a;
+  display: none;
+}
+
+.warnings.show {
+  display: block;
+}
+
+.status-message {
+  color: #14532d;
+  min-height: 20px;
+}
+
+.main-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-card {
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 36px rgba(15, 30, 50, 0.08);
+}
+
+.plot-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.area-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #edf8f0;
+  border: 1px solid #bfe0c2;
+  color: #14532d;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+svg {
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  background: white;
+  border: 1px solid #e4ebf4;
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: auto;
+    flex-basis: auto;
+  }
+}

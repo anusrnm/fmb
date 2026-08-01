@@ -85,3 +85,18 @@ Thumbs.db
 # Editor swap files
 *.swp
 *~
+
+# Deno Cache directory (when using project-local DENO_DIR)
+.deno/
+
+# Deno coverage reports
+coverage/
+*.lcov
+
+# Environment secrets
+.env
+.env.local
+
+# Node.js compatibility (only if using node_modules npm specifiers locally)
+node_modules/
+npm-debug.log*

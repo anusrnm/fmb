@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FMB Generator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <p class="eyebrow">FMB web app</p>
+          <p class="subtitle">
+            Enter point coordinates in a natural format, inspect the plot, and calculate
+            property area in multiple units.
+          </p>
+        </div>
+
+        <div class="control-group">
+          <label for="center-text">Center text</label>
+          <input id="center-text" type="text" placeholder="Enter text to show in the middle of the plot" />
+        </div>
+
+        <div class="compact-row">
+          <label class="checkbox-row">
+            <input id="show-points" type="checkbox" checked />
+            <span>Show points</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="show-gridlines" type="checkbox" checked />
+            <span>Gridlines</span>
+          </label>
+        </div>
+
+        <div class="control-group">
+          <label for="points-input">Points</label>
+          <textarea id="points-input" rows="5"></textarea>
+        </div>
+
+        <div class="control-group">
+          <label for="joins-input">Joins</label>
+          <textarea id="joins-input" rows="5" placeholder="Corner A, 0, 0 | Corner C, 80, -35"></textarea>
+        </div>
+
+        <div class="action-row">
+          <button id="export-btn" type="button">Export</button>
+          <button id="import-btn" type="button">Import</button>
+          <button id="save-graph-btn" type="button">Save Graph</button>
+        </div>
+        <input id="import-file" type="file" accept=".json" hidden />
+
+        <div id="warnings" class="warnings" aria-live="polite"></div>
+        <div id="status-message" class="status-message" role="status"></div>
+      </aside>
+
+      <main class="main-panel">
+        <div class="plot-card">
+          <svg id="plot" viewBox="0 0 800 500" role="img" aria-label="Property plot"></svg>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
