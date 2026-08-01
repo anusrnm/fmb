@@ -72,6 +72,9 @@ area_sqm = 0.0
 hectares = 0
 ares = 0
 rem_sqm = 0.0
+acres = 0.0
+cents = 0.0
+sqft = 0.0
 
 if len(points_list) >= 3:
     # Preserve the order entered by the user for plotting.
@@ -158,15 +161,14 @@ ax.grid(True, linestyle=':', alpha=0.4)
 ax.axis('equal')
 ax.legend(loc="upper left")
 
-# Area Stamp in Top-Right Corner
-area_text = f"Area: Hect {hectares} Ares {ares} Sqm {rem_sqm:.2f} | Acres {acres:.3f} | Cents {cents:.2f} | SqFt {sqft:.2f}"
-ax.text(0.97, 0.95, area_text, 
-        transform=ax.transAxes, 
-        fontsize=9, 
-        color='black',
-        bbox=dict(facecolor='lightyellow', alpha=0.9, edgecolor='gray', boxstyle='round,pad=0.5'),
-        ha='right', 
-        va='top')
+# Area Stamp outside the plot area but still attached to the figure
+area_text = f"Area: Hect {hectares} Ares {ares} Sqm {rem_sqm:.2f} \n Acres {acres:.3f} | Cents {cents:.2f} \n Sqft {sqft:.2f}"
+fig.text(0.98, 0.97, area_text,
+         fontsize=9,
+         color='black',
+         bbox=dict(facecolor='lightyellow', alpha=0.9, edgecolor='gray', boxstyle='round,pad=0.5'),
+         ha='right',
+         va='top')
 
 if center_text.strip():
     ax.text(0.5, 0.5, center_text.strip(), transform=ax.transAxes, ha='center', va='center', fontsize=12, fontweight='bold', color='navy')
