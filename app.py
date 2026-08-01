@@ -61,7 +61,11 @@ if parse_warnings:
     st.warning("Some lines were ignored. Use a format like 'Corner A, 0, 0' or '0, 0'.")
 
 st.subheader("📝 Plot Annotation")
-center_text = st.text_input("Center text", value="", placeholder="Enter text to show in the middle of the plot")
+col1, col2 = st.columns([3, 1])
+with col1:
+    center_text = st.text_input("Center text", value="", placeholder="Enter text to show in the middle of the plot")
+with col2:
+    show_points = st.checkbox("Show points", value=True)
 
 # 4. SORT, CLOSE POLYGON, AND CALCULATE AREA UNITS
 area_sqm = 0.0
@@ -125,20 +129,22 @@ if points_list:
         x, y, name = pt["x"], pt["y"], pt["name"]
         if y != 0:
             ax.plot([x, x], [0, y], 'r:', alpha=0.6)
-        ax.scatter(x, y, color='blue', zorder=5)
 
-        # Place the label close to the plotted point with a small offset
-        label_x = x + 0.5 if x >= 0 else x - 0.5
-        label_y = y + 0.5 if y >= 0 else y - 0.5
-        ax.text(
-            label_x,
-            label_y,
-            f"{name}\n({x:.2f}, {y:.2f})",
-            fontsize=8,
-            ha='left',
-            va='bottom',
-            bbox=dict(facecolor='white', alpha=0.75, edgecolor='none', pad=0.3),
-        )
+        if show_points:
+            ax.scatter(x, y, color='blue', zorder=5)
+
+            # Place the label close to the plotted point with a small offset
+            label_x = x + 0.5 if x >= 0 else x - 0.5
+            label_y = y + 0.5 if y >= 0 else y - 0.5
+            ax.text(
+                label_x,
+                label_y,
+                f"{name}\n({x:.2f}, {y:.2f})",
+                fontsize=8,
+                ha='left',
+                va='bottom',
+                bbox=dict(facecolor='white', alpha=0.75, edgecolor='none', pad=0.3),
+            )
 
 # Map configuration & axis styling
 ax.set_xlabel("Baseline Distance (m)")
