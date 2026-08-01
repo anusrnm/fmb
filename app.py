@@ -13,7 +13,7 @@ with col1:
     center_text = st.text_input("Center text", value="", placeholder="Enter text to show in the middle of the plot")
 with col2:
     show_points = st.checkbox("Show points", value=True)
-    
+
 # 1. NATURAL POINT INPUT
 st.markdown("#### 📍 Point Input")
 
@@ -93,6 +93,11 @@ if len(points_list) >= 3:
     leftover_after_hect = area_sqm % 10000
     ares = int(leftover_after_hect // 100)
     rem_sqm = leftover_after_hect % 100
+
+    # Convert to acres, cents, and square feet for display
+    acres = area_sqm / 4046.8564224
+    cents = acres * 100
+    sqft = area_sqm * 10.76391041671
 else:
     bx_draw, by_draw = [], []
 
@@ -154,7 +159,7 @@ ax.axis('equal')
 ax.legend(loc="upper left")
 
 # Area Stamp in Top-Right Corner
-area_text = f"Area: Hect {hectares} Ares {ares} Sqm {rem_sqm:.2f}"
+area_text = f"Area: Hect {hectares} Ares {ares} Sqm {rem_sqm:.2f} | Acres {acres:.3f} | Cents {cents:.2f} | SqFt {sqft:.2f}"
 ax.text(0.97, 0.95, area_text, 
         transform=ax.transAxes, 
         fontsize=9, 
