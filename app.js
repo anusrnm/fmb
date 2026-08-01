@@ -35,6 +35,46 @@ function getDownloadBaseName(value, fallback) {
   return normalized || fallback;
 }
 
+function getCurrentConfig() {
+  const pointsInput = document.getElementById("points-input");
+  const joinsInput = document.getElementById("joins-input");
+  const centerText = document.getElementById("center-text");
+  const showPoints = document.getElementById("show-points");
+  const showGridlines = document.getElementById("show-gridlines");
+
+  return {
+    points: pointsInput.value,
+    joins: joinsInput.value,
+    centerText: centerText.value,
+    showPoints: showPoints.checked,
+    showGridlines: showGridlines.checked,
+  };
+}
+
+function buildSvgDocument(svgContent, config, viewBox, width, height) {
+  const payload = JSON.stringify(config);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${width}" height="${height}">
+  <metadata id="fmb-config">${escapeHtml(payload)}</metadata>
+  <style>
+    text { font-family: Inter, 'Segoe UI', Roboto, sans-serif; }
+    .axis-label { font-weight: 700; }
+    .tick-label { fill: #475569; }
+  </style>
+  ${svgContent}
+</svg>`;
+}
+
+function downloadSvgFile(fileName, config, svgContent, viewBox, width, height) {
+  const blob = new Blob([buildSvgDocument(svgContent, config, viewBox, width, height)], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function parseCoordinateText(rawText, fallbackNamePrefix) {
   const result = [];
   const warnings = [];
@@ -287,29 +327,19 @@ function render() {
 }
 
 function exportInputs() {
-  const pointsInput = document.getElementById("points-input");
-  const joinsInput = document.getElementById("joins-input");
+  const plot = document.getElementById("plot");
   const centerText = document.getElementById("center-text");
-  const showPoints = document.getElementById("show-points");
-  const showGridlines = document.getElementById("show-gridlines");
-  const fileName = `${getDownloadBaseName(centerText.value, "fmb-config")}.json`;
+  if (!plot) {
+    return;
+  }
 
-  const payload = {
-    points: pointsInput.value,
-    joins: joinsInput.value,
-    centerText: centerText.value,
-    showPoints: showPoints.checked,
-    showGridlines: showGridlines.checked,
-  };
-
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
-  setStatus("Inputs exported.");
+  const viewBox = plot.getAttribute("viewBox") || "0 0 800 500";
+  const width = plot.getAttribute("width") || "800";
+  const height = plot.getAttribute("height") || "500";
+  const fileName = `${getDownloadBaseName(centerText.value, "fmb-plot")}.svg`;
+  const config = getCurrentConfig();
+  downloadSvgFile(fileName, config, plot.innerHTML, viewBox, width, height);
+  setStatus("Plot exported as SVG with embedded data.");
 }
 
 function saveGraph() {
@@ -323,24 +353,8 @@ function saveGraph() {
   const width = plot.getAttribute("width") || "800";
   const height = plot.getAttribute("height") || "500";
   const fileName = `${getDownloadBaseName(centerText.value, "fmb-plot")}.svg`;
-  const svgContent = plot.innerHTML;
-  const blob = new Blob([
-    `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${width}" height="${height}">
-  <style>
-    text { font-family: Inter, 'Segoe UI', Roboto, sans-serif; }
-    .axis-label { font-weight: 700; }
-    .tick-label { fill: #475569; }
-  </style>
-  ${svgContent}
-</svg>`
-  ], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
+  const config = getCurrentConfig();
+  downloadSvgFile(fileName, config, plot.innerHTML, viewBox, width, height);
   setStatus("Graph saved as SVG.");
 }
 
@@ -353,7 +367,25 @@ function importInputs(event) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(String(reader.result));
+      const text = String(reader.result);
+      let data = null;
+
+      if (file.name.toLowerCase().endsWith(".svg")) {
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(text, "image/svg+xml");
+        const metadata = svgDoc.querySelector('metadata[id="fmb-config"]');
+        const payload = metadata?.textContent?.trim();
+        if (payload) {
+          data = JSON.parse(payload);
+        }
+      } else {
+        data = JSON.parse(text);
+      }
+
+      if (!data) {
+        throw new Error("No embedded plot data found.");
+      }
+
       const pointsInput = document.getElementById("points-input");
       const joinsInput = document.getElementById("joins-input");
       const centerText = document.getElementById("center-text");
