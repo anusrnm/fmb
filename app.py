@@ -18,7 +18,6 @@ Corner D, 100, 0"""
 point_input = st.text_area(
     "Enter points",
     value=default_points,
-    height=220,
     help="One point per line. Examples: Corner A, 0, 0 | 10, 20 | Corner A: 0, 0"
 )
 
@@ -60,6 +59,9 @@ for line_no, raw_line in enumerate(point_input.splitlines(), start=1):
 
 if parse_warnings:
     st.warning("Some lines were ignored. Use a format like 'Corner A, 0, 0' or '0, 0'.")
+
+st.subheader("📝 Plot Annotation")
+center_text = st.text_input("Center text", value="", placeholder="Enter text to show in the middle of the plot")
 
 # 4. SORT, CLOSE POLYGON, AND CALCULATE AREA UNITS
 area_sqm = 0.0
@@ -129,10 +131,19 @@ if points_list:
         if y != 0:
             ax.plot([x, x], [0, y], 'r:', alpha=0.6)
         ax.scatter(x, y, color='blue', zorder=5)
-        
-        offset_y_label = 3 if y >= 0 else -5
-        ax.text(x, y + offset_y_label, f"{name}\n({x:.2f}, {y:.2f})", 
-                fontsize=8, ha='center', va='center')
+
+        # Place the label close to the plotted point with a small offset
+        label_x = x + 0.5 if x >= 0 else x - 0.5
+        label_y = y + 0.5 if y >= 0 else y - 0.5
+        ax.text(
+            label_x,
+            label_y,
+            f"{name}\n({x:.2f}, {y:.2f})",
+            fontsize=8,
+            ha='left',
+            va='bottom',
+            bbox=dict(facecolor='white', alpha=0.75, edgecolor='none', pad=0.3),
+        )
 
 # Map configuration & axis styling
 ax.set_xlabel("Baseline Distance (m)")
@@ -146,11 +157,13 @@ area_text = f"Area: Hect {hectares} Ares {ares} Sqm {rem_sqm:.2f}"
 ax.text(0.97, 0.95, area_text, 
         transform=ax.transAxes, 
         fontsize=9, 
-        fontweight='bold',
         color='black',
         bbox=dict(facecolor='lightyellow', alpha=0.9, edgecolor='gray', boxstyle='round,pad=0.5'),
         ha='right', 
         va='top')
+
+if center_text.strip():
+    ax.text(0.5, 0.5, center_text.strip(), transform=ax.transAxes, ha='center', va='center', fontsize=12, fontweight='bold', color='navy')
 
 # 6. RENDER THE SIMPLIFIED INTERACTIVE SKETCH
 st.subheader("🗺️ Live FMB Map")
