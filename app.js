@@ -208,6 +208,7 @@ function getThemeColors() {
     plotAux: style.getPropertyValue("--plot-aux").trim(),
     plotText: style.getPropertyValue("--plot-text").trim(),
     plotCenterText: style.getPropertyValue("--plot-center-text").trim(),
+    plotCenterOpacity: style.getPropertyValue("--plot-center-opacity").trim(),
     plotJoin: style.getPropertyValue("--plot-join").trim(),
     plotJoinLabel: style.getPropertyValue("--plot-join-label").trim(),
     plotAreaText: style.getPropertyValue("--plot-area-text").trim(),
@@ -257,8 +258,8 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
 
   parts.push(`<line x1="${margin}" y1="${xAxisY}" x2="${width - margin}" y2="${xAxisY}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
   parts.push(`<line x1="${yAxisX}" y1="${margin}" x2="${yAxisX}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
-  parts.push(`<text x="${width / 2}" y="${xAxisLabelY}" text-anchor="middle" font-size="13" font-weight="700" fill="${colors.plotAxisText}">X Axis</text>`);
-  parts.push(`<text x="${yAxisX - 12}" y="${height / 2}" text-anchor="end" transform="rotate(-90 ${yAxisX - 12} ${height / 2})" font-size="13" font-weight="700" fill="${colors.plotAxisText}">Y Axis</text>`);
+  parts.push(`<text x="${width / 2}" y="${xAxisLabelY}" text-anchor="middle" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">X Axis</text>`);
+  parts.push(`<text x="${yAxisX - 12}" y="${height / 2}" text-anchor="end" transform="rotate(-90 ${yAxisX - 12} ${height / 2})" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">Y Axis</text>`);
 
   for (let step = 0; step <= 5; step += 1) {
     const x = margin + (step / 5) * (width - margin * 2);
@@ -333,7 +334,7 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
   parts.push(`<text x="${width - 24}" y="28" text-anchor="end" fill="${colors.plotAreaText}" font-size="13" font-weight="700">${escapeHtml(areaText)}</text>`);
 
   if (centerText.trim()) {
-    parts.push(`<text x="400" y="250" text-anchor="middle" fill="${colors.plotCenterText}" font-size="24" font-weight="700">${escapeHtml(centerText.trim())}</text>`);
+    parts.push(`<text x="400" y="250" text-anchor="middle" fill="${colors.plotCenterText}" fill-opacity="${colors.plotCenterOpacity}" font-size="32" font-weight="700" opacity="0.7" letter-spacing="0.12em">${escapeHtml(centerText.trim())}</text>`);
   }
 
   return parts.join("");
@@ -475,6 +476,7 @@ function toggleTheme() {
   const nextTheme = currentTheme === "dark" ? "light" : "dark";
   applyTheme(nextTheme);
   localStorage.setItem("fmb-theme", nextTheme);
+  render();
 }
 
 function initialize() {

@@ -24,6 +24,7 @@
   --plot-aux: #ef4444;
   --plot-text: #132238;
   --plot-center-text: #1e3a8a;
+  --plot-center-opacity: 0.22;
   --plot-join: #c026d3;
   --plot-join-label: #7e22ce;
   --plot-area-text: #14532d;
@@ -55,6 +56,7 @@
   --plot-aux: #f97316;
   --plot-text: #e2e8f0;
   --plot-center-text: #93c5fd;
+  --plot-center-opacity: 0.18;
   --plot-join: #c084fc;
   --plot-join-label: #d8b4fe;
   --plot-area-text: #a5b4fc;
