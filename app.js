@@ -194,7 +194,28 @@ function getLabelPosition(px, py, text, width, height, padding = 8, offset = 3) 
   return { x, y, anchor };
 }
 
+function getThemeColors() {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    plotBg: style.getPropertyValue("--svg-bg").trim(),
+    plotBorder: style.getPropertyValue("--svg-border").trim(),
+    plotGrid: style.getPropertyValue("--plot-grid").trim(),
+    plotAxis: style.getPropertyValue("--plot-axis").trim(),
+    plotAxisText: style.getPropertyValue("--plot-axis-text").trim(),
+    plotLabel: style.getPropertyValue("--plot-label").trim(),
+    plotBoundary: style.getPropertyValue("--plot-boundary").trim(),
+    plotPoint: style.getPropertyValue("--plot-point").trim(),
+    plotAux: style.getPropertyValue("--plot-aux").trim(),
+    plotText: style.getPropertyValue("--plot-text").trim(),
+    plotCenterText: style.getPropertyValue("--plot-center-text").trim(),
+    plotJoin: style.getPropertyValue("--plot-join").trim(),
+    plotJoinLabel: style.getPropertyValue("--plot-join-label").trim(),
+    plotAreaText: style.getPropertyValue("--plot-area-text").trim(),
+  };
+}
+
 function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
+  const colors = getThemeColors();
   const width = 800;
   const height = 500;
   const margin = 70;
@@ -212,21 +233,21 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
   const yToPx = (value) => height - margin - ((value - minY) / ySpan) * (height - margin * 2);
 
   const parts = [];
-  parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="#f9fbff" rx="20" ry="20" />`);
+  parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="${colors.plotBg}" rx="20" ry="20" />`);
 
   if (showGridlines) {
     for (let step = 0; step <= 5; step += 1) {
       const x = margin + (step / 5) * (width - margin * 2);
       const y = margin + (step / 5) * (height - margin * 2);
-      parts.push(`<line x1="${x}" y1="${margin}" x2="${x}" y2="${height - margin}" stroke="#d8e4f0" stroke-width="1" stroke-dasharray="3 3" />`);
-      parts.push(`<line x1="${margin}" y1="${y}" x2="${width - margin}" y2="${y}" stroke="#d8e4f0" stroke-width="1" stroke-dasharray="3 3" />`);
+      parts.push(`<line x1="${x}" y1="${margin}" x2="${x}" y2="${height - margin}" stroke="${colors.plotGrid}" stroke-width="1" stroke-dasharray="3 3" />`);
+      parts.push(`<line x1="${margin}" y1="${y}" x2="${width - margin}" y2="${y}" stroke="${colors.plotGrid}" stroke-width="1" stroke-dasharray="3 3" />`);
     }
   }
 
-  parts.push(`<line x1="${margin}" y1="${height - margin}" x2="${width - margin}" y2="${height - margin}" stroke="#1f2937" stroke-width="2.2" />`);
-  parts.push(`<line x1="${margin}" y1="${margin}" x2="${margin}" y2="${height - margin}" stroke="#1f2937" stroke-width="2.2" />`);
-  parts.push(`<text x="${width / 2}" y="${height - 20}" text-anchor="middle" font-size="13" font-weight="700" fill="#23354d">X Axis</text>`);
-  parts.push(`<text x="20" y="${height / 2}" text-anchor="middle" transform="rotate(-90 20 ${height / 2})" font-size="13" font-weight="700" fill="#23354d">Y Axis</text>`);
+  parts.push(`<line x1="${margin}" y1="${height - margin}" x2="${width - margin}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
+  parts.push(`<line x1="${margin}" y1="${margin}" x2="${margin}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
+  parts.push(`<text x="${width / 2}" y="${height - 20}" text-anchor="middle" font-size="13" font-weight="700" fill="${colors.plotAxisText}">X Axis</text>`);
+  parts.push(`<text x="20" y="${height / 2}" text-anchor="middle" transform="rotate(-90 20 ${height / 2})" font-size="13" font-weight="700" fill="${colors.plotAxisText}">Y Axis</text>`);
 
   for (let step = 0; step <= 5; step += 1) {
     const x = margin + (step / 5) * (width - margin * 2);
@@ -245,19 +266,19 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
   if (points.length > 0) {
     const boundaryPath = points.map((point) => `${xToPx(point.x)},${yToPx(point.y)}`).join(" ");
     const closedPath = `${boundaryPath} ${xToPx(points[0].x)},${yToPx(points[0].y)}`;
-    parts.push(`<polyline points="${closedPath}" fill="none" stroke="#2e8b57" stroke-width="2.4" stroke-linejoin="round" />`);
+    parts.push(`<polyline points="${closedPath}" fill="none" stroke="${colors.plotBoundary}" stroke-width="2.4" stroke-linejoin="round" />`);
 
     points.forEach((point) => {
       const px = xToPx(point.x);
       const py = yToPx(point.y);
-      if (point.y !== 0) {
-        parts.push(`<line x1="${px}" y1="${yToPx(0)}" x2="${px}" y2="${py}" stroke="#ef4444" stroke-width="1.2" stroke-dasharray="4 3" />`);
+        if (point.y !== 0) {
+        parts.push(`<line x1="${px}" y1="${yToPx(0)}" x2="${px}" y2="${py}" stroke="${colors.plotAux}" stroke-width="1.2" stroke-dasharray="4 3" />`);
       }
       if (showPoints) {
-        parts.push(`<circle cx="${px}" cy="${py}" r="5" fill="#2563eb" />`);
+        parts.push(`<circle cx="${px}" cy="${py}" r="5" fill="${colors.plotPoint}" />`);
       }
       const label = getLabelPosition(px, py, `${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`, width, height, 8, 3);
-      parts.push(`<text x="${label.x}" y="${label.y}" text-anchor="${label.anchor}" fill="#132238" font-size="12" font-weight="600">${escapeHtml(`${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`)}</text>`);
+      parts.push(`<text x="${label.x}" y="${label.y}" text-anchor="${label.anchor}" fill="${colors.plotText}" font-size="12" font-weight="600">${escapeHtml(`${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`)}</text>`);
     });
 
     for (let index = 0; index < points.length; index += 1) {
@@ -272,7 +293,7 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
       const sideLength = calculateDistance(start, end);
       const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
       const normalizedAngle = angle > 90 ? angle - 180 : angle < -90 ? angle + 180 : angle;
-      parts.push(`<text x="${midX}" y="${midY}" transform="rotate(${normalizedAngle}, ${midX}, ${midY})" fill="#166534" font-size="12" font-weight="700">${sideLength.toFixed(2)} m</text>`);
+      parts.push(`<text x="${midX}" y="${midY}" transform="rotate(${normalizedAngle}, ${midX}, ${midY})" fill="${colors.plotAux}" font-size="12" font-weight="700">${sideLength.toFixed(2)} m</text>`);
     }
   }
 
@@ -286,18 +307,18 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
     const y1 = yToPx(join.y);
     const x2 = xToPx(next.x);
     const y2 = yToPx(next.y);
-    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c026d3" stroke-width="2" stroke-dasharray="6 4" />`);
+    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${colors.plotJoin}" stroke-width="2" stroke-dasharray="6 4" />`);
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
     const joinLength = calculateDistance(join, next);
-    parts.push(`<text x="${midX}" y="${midY}" fill="#7e22ce" font-size="11" font-weight="700">${joinLength.toFixed(2)} m</text>`);
+    parts.push(`<text x="${midX}" y="${midY}" fill="${colors.plotJoinLabel}" font-size="11" font-weight="700">${joinLength.toFixed(2)} m</text>`);
   });
 
   const areaText = `Area: ${area.hectares} ha • ${area.ares} a • ${area.remSqm.toFixed(2)} sqm • ${area.acres.toFixed(3)} ac • ${area.cents.toFixed(2)} cents • ${area.sqft.toFixed(2)} sqft`;
-  parts.push(`<text x="${width - 24}" y="28" text-anchor="end" fill="#14532d" font-size="13" font-weight="700">${escapeHtml(areaText)}</text>`);
+  parts.push(`<text x="${width - 24}" y="28" text-anchor="end" fill="${colors.plotAreaText}" font-size="13" font-weight="700">${escapeHtml(areaText)}</text>`);
 
   if (centerText.trim()) {
-    parts.push(`<text x="400" y="250" text-anchor="middle" fill="#1e3a8a" font-size="24" font-weight="700">${escapeHtml(centerText.trim())}</text>`);
+    parts.push(`<text x="400" y="250" text-anchor="middle" fill="${colors.plotCenterText}" font-size="24" font-weight="700">${escapeHtml(centerText.trim())}</text>`);
   }
 
   return parts.join("");
@@ -419,6 +440,28 @@ function importInputs(event) {
   event.target.value = "";
 }
 
+function getSavedTheme() {
+  return localStorage.getItem("fmb-theme");
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  const themeToggle = document.getElementById("theme-toggle");
+
+  root.dataset.theme = theme;
+  if (themeToggle) {
+    themeToggle.textContent = theme === "dark" ? "☀️ Light" : "🌙 Dark";
+    themeToggle.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} theme`);
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.dataset.theme || "light";
+  const nextTheme = currentTheme === "dark" ? "light" : "dark";
+  applyTheme(nextTheme);
+  localStorage.setItem("fmb-theme", nextTheme);
+}
+
 function initialize() {
   const pointsInput = document.getElementById("points-input");
   const joinsInput = document.getElementById("joins-input");
@@ -429,6 +472,10 @@ function initialize() {
   const importBtn = document.getElementById("import-btn");
   const saveGraphBtn = document.getElementById("save-graph-btn");
   const importFile = document.getElementById("import-file");
+  const themeToggle = document.getElementById("theme-toggle");
+
+  const savedTheme = getSavedTheme();
+  applyTheme(savedTheme === "dark" ? "dark" : "light");
 
   pointsInput.value = defaultPoints;
   joinsInput.value = defaultJoins;
@@ -445,6 +492,10 @@ function initialize() {
   importBtn.addEventListener("click", () => importFile.click());
   saveGraphBtn.addEventListener("click", saveGraph);
   importFile.addEventListener("change", importInputs);
+  if (themeToggle) {
+    themeToggle.addEventListener("click", toggleTheme);
+  }
+
   render();
 }
 

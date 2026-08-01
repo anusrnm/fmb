@@ -3,6 +3,62 @@
   font-family: Inter, "Segoe UI", Roboto, sans-serif;
   background: #f4f7fb;
   color: #132238;
+  --page-bg: linear-gradient(135deg, #f4f7fb 0%, #eaf2ff 100%);
+  --surface-bg: rgba(255, 255, 255, 0.9);
+  --surface-strong-bg: rgba(255, 255, 255, 0.92);
+  --card-bg: #f9fbff;
+  --text: #132238;
+  --muted: #53657b;
+  --border: #d2dce9;
+  --input-bg: #ffffff;
+  --button-bg: #e7eef8;
+  --button-hover: #d7e3f4;
+  --svg-bg: #f9fbff;
+  --svg-border: #e4ebf4;
+  --plot-grid: #d8e4f0;
+  --plot-axis: #1f2937;
+  --plot-axis-text: #23354d;
+  --plot-label: #475569;
+  --plot-boundary: #2e8b57;
+  --plot-point: #2563eb;
+  --plot-aux: #ef4444;
+  --plot-text: #132238;
+  --plot-center-text: #1e3a8a;
+  --plot-join: #c026d3;
+  --plot-join-label: #7e22ce;
+  --plot-area-text: #14532d;
+  --shadow: rgba(15, 30, 50, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  background: #121826;
+  color: #e2e8f0;
+  --page-bg: linear-gradient(135deg, #10131b 0%, #1d2330 100%);
+  --surface-bg: rgba(20, 28, 40, 0.9);
+  --surface-strong-bg: rgba(18, 24, 38, 0.95);
+  --card-bg: #162135;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: #334155;
+  --input-bg: #1e293b;
+  --button-bg: #1f2937;
+  --button-hover: #2d3b57;
+  --svg-bg: #111827;
+  --svg-border: #334155;
+  --plot-grid: #273449;
+  --plot-axis: #cbd5e1;
+  --plot-axis-text: #e2e8f0;
+  --plot-label: #cbd5e1;
+  --plot-boundary: #60a5fa;
+  --plot-point: #60a5fa;
+  --plot-aux: #f97316;
+  --plot-text: #e2e8f0;
+  --plot-center-text: #93c5fd;
+  --plot-join: #c084fc;
+  --plot-join-label: #d8b4fe;
+  --plot-area-text: #a5b4fc;
+  --shadow: rgba(0, 0, 0, 0.35);
 }
 
 * {
@@ -12,7 +68,8 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: linear-gradient(135deg, #f4f7fb 0%, #eaf2ff 100%);
+  background: var(--page-bg);
+  color: var(--text);
 }
 
 .app-shell {
@@ -31,8 +88,8 @@ body {
   gap: 12px;
   padding: 18px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 14px 36px rgba(15, 30, 50, 0.08);
+  background: var(--surface-bg);
+  box-shadow: 0 14px 36px var(--shadow);
 }
 
 .sidebar-top {
@@ -86,12 +143,12 @@ h1 {
 input[type="text"],
 textarea {
   width: 100%;
-  border: 1px solid #d2dce9;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
-  color: #132238;
-  background: white;
+  color: var(--text);
+  background: var(--input-bg);
 }
 
 textarea {
@@ -111,12 +168,20 @@ button {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-  color: #173049;
-  background: #e7eef8;
+  color: var(--text);
+  background: var(--button-bg);
 }
 
 button:hover {
-  background: #d7e3f4;
+  background: var(--button-hover);
+}
+
+#theme-toggle {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 20;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
 }
 
 .warnings,
@@ -153,8 +218,8 @@ button:hover {
 .plot-card {
   padding: 14px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 14px 36px rgba(15, 30, 50, 0.08);
+  background: var(--surface-strong-bg);
+  box-shadow: 0 14px 36px var(--shadow);
 }
 
 .plot-toolbar {
@@ -180,8 +245,8 @@ svg {
   width: 100%;
   height: auto;
   border-radius: 16px;
-  background: white;
-  border: 1px solid #e4ebf4;
+  background: var(--svg-bg);
+  border: 1px solid var(--svg-border);
 }
 
 @media (max-width: 980px) {
