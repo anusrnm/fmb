@@ -1,46 +1,65 @@
 import streamlit as st
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 
 # Page setup
 st.set_page_config(page_title="FMB Generator", layout="wide")
 st.markdown("### Field Measurement Book (FMB) Generator")
-st.write("Modify the data below. The total area is rendered in the top-right corner of the map sketch.")
+st.write("Enter your points in a natural coordinate format. Each line can be a point name and x/y pair, such as 'Corner A, 0, 0'.")
 
-# 1. INITIALIZE DEFAULT QUADRILATERAL DATA
-default_data = {
-    "Point Name": ["Corner A", "Corner B", "Corner C", "Corner D"],
-    "Chainage (m)": [0.0, 40.0, 80.0, 100.0],
-    "Offset (m)": [0.0, 30.0, -35.0, 0.0]
-}
-df_initial = pd.DataFrame(default_data)
+# 1. NATURAL POINT INPUT
+st.subheader("📍 Point Input")
 
-# 2. INTERACTIVE DATA TABLE
-st.subheader("📋 Surveyor's Ladder Data Table")
+default_points = """Corner A, 0, 0
+Corner B, 40, 30
+Corner C, 80, -35
+Corner D, 100, 0"""
 
-edited_df = st.data_editor(
-    df_initial,
-    num_rows="dynamic",
-    column_config={
-        "Point Name": st.column_config.TextColumn(label="Point Name", default="New Point"),
-        "Chainage (m)": st.column_config.NumberColumn(label="Chainage (m)", min_value=0.0, step=0.01, format="%.2f"),
-        "Offset (m)": st.column_config.NumberColumn(label="Offset (m) (+Left / -Right)", step=0.01, format="%.2f")
-    },
-    use_container_width=True
+point_input = st.text_area(
+    "Enter points",
+    value=default_points,
+    height=220,
+    help="One point per line. Examples: Corner A, 0, 0 | 10, 20 | Corner A: 0, 0"
 )
 
-# 3. PROCESS THE INTERACTIVE DATA INTO X,Y COORDINATES
+# 2. PARSE THE TEXT INTO X,Y COORDINATES
 points_list = []
+parse_warnings = []
 
-for _, row in edited_df.iterrows():
-    try:
-        x = float(row["Chainage (m)"])
-        y = float(row["Offset (m)"])
-        name = str(row["Point Name"])
-        points_list.append({"x": x, "y": y, "name": name})
-    except (ValueError, TypeError):
+for line_no, raw_line in enumerate(point_input.splitlines(), start=1):
+    line = raw_line.strip()
+    if not line:
         continue
+
+    name = f"Point {line_no}"
+    coord_text = line
+
+    if ":" in line:
+        name_part, coord_text = line.split(":", 1)
+        name = name_part.strip() or name
+        coord_text = coord_text.strip()
+
+    coord_text = coord_text.replace("(", "").replace(")", "")
+    parts = [part.strip() for part in coord_text.replace(";", ",").split(",") if part.strip()]
+
+    if len(parts) >= 2:
+        try:
+            if len(parts) >= 3 and not parts[0].replace(".", "", 1).replace("-", "", 1).isdigit():
+                name = parts[0]
+                x = float(parts[1])
+                y = float(parts[2])
+            else:
+                x = float(parts[0])
+                y = float(parts[1])
+
+            points_list.append({"x": x, "y": y, "name": name})
+        except ValueError:
+            parse_warnings.append(f"Line {line_no}: could not parse '{raw_line}'.")
+    else:
+        parse_warnings.append(f"Line {line_no}: could not parse '{raw_line}'.")
+
+if parse_warnings:
+    st.warning("Some lines were ignored. Use a format like 'Corner A, 0, 0' or '0, 0'.")
 
 # 4. SORT, CLOSE POLYGON, AND CALCULATE AREA UNITS
 area_sqm = 0.0
