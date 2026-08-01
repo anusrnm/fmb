@@ -70,17 +70,12 @@ ares = 0
 rem_sqm = 0.0
 
 if len(points_list) >= 3:
-    left_side = [p for p in points_list if p["y"] >= 0]
-    right_side = [p for p in points_list if p["y"] < 0]
-    
-    left_side.sort(key=lambda p: p["x"])
-    right_side.sort(key=lambda p: p["x"], reverse=True)
-    
-    closed_loop = left_side + right_side
+    # Preserve the order entered by the user for plotting.
+    closed_loop = points_list
     bx = [p["x"] for p in closed_loop]
     by = [p["y"] for p in closed_loop]
-    
-    # FIX: Append only the first single coordinate item to properly close the loop path
+
+    # Close the loop by reconnecting to the first point.
     bx_draw = bx + [bx[0]]
     by_draw = by + [by[0]]
     
