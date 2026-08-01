@@ -232,6 +232,17 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
   const xToPx = (value) => margin + ((value - minX) / xSpan) * (width - margin * 2);
   const yToPx = (value) => height - margin - ((value - minY) / ySpan) * (height - margin * 2);
 
+  const xAxisY = (() => {
+    const zeroInRange = 0 >= minY && 0 <= maxY;
+    return zeroInRange ? yToPx(0) : height - margin;
+  })();
+  const yAxisX = (() => {
+    const zeroInRange = 0 >= minX && 0 <= maxX;
+    return zeroInRange ? xToPx(0) : margin;
+  })();
+
+  const xAxisLabelY = xAxisY > height / 2 ? xAxisY + 24 : xAxisY - 8;
+
   const parts = [];
   parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="${colors.plotBg}" rx="20" ry="20" />`);
 
@@ -244,23 +255,27 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area) {
     }
   }
 
-  parts.push(`<line x1="${margin}" y1="${height - margin}" x2="${width - margin}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
-  parts.push(`<line x1="${margin}" y1="${margin}" x2="${margin}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
-  parts.push(`<text x="${width / 2}" y="${height - 20}" text-anchor="middle" font-size="13" font-weight="700" fill="${colors.plotAxisText}">X Axis</text>`);
-  parts.push(`<text x="20" y="${height / 2}" text-anchor="middle" transform="rotate(-90 20 ${height / 2})" font-size="13" font-weight="700" fill="${colors.plotAxisText}">Y Axis</text>`);
+  parts.push(`<line x1="${margin}" y1="${xAxisY}" x2="${width - margin}" y2="${xAxisY}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
+  parts.push(`<line x1="${yAxisX}" y1="${margin}" x2="${yAxisX}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" />`);
+  parts.push(`<text x="${width / 2}" y="${xAxisLabelY}" text-anchor="middle" font-size="13" font-weight="700" fill="${colors.plotAxisText}">X Axis</text>`);
+  parts.push(`<text x="${yAxisX - 12}" y="${height / 2}" text-anchor="end" transform="rotate(-90 ${yAxisX - 12} ${height / 2})" font-size="13" font-weight="700" fill="${colors.plotAxisText}">Y Axis</text>`);
 
   for (let step = 0; step <= 5; step += 1) {
     const x = margin + (step / 5) * (width - margin * 2);
     const value = minX + (step / 5) * xSpan;
-    parts.push(`<line x1="${x}" y1="${height - margin}" x2="${x}" y2="${height - margin + 8}" stroke="#374151" stroke-width="1" />`);
-    parts.push(`<text x="${x}" y="${height - margin + 24}" text-anchor="middle" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+    const tickDirection = xAxisY > height / 2 ? 8 : -8;
+    const labelOffset = xAxisY > height / 2 ? 24 : -10;
+    parts.push(`<line x1="${x}" y1="${xAxisY}" x2="${x}" y2="${xAxisY + tickDirection}" stroke="#374151" stroke-width="1" />`);
+    parts.push(`<text x="${x}" y="${xAxisY + labelOffset}" text-anchor="middle" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
   }
 
   for (let step = 0; step <= 5; step += 1) {
     const y = margin + (step / 5) * (height - margin * 2);
     const value = maxY - (step / 5) * ySpan;
-    parts.push(`<line x1="${margin - 8}" y1="${y}" x2="${margin}" y2="${y}" stroke="#374151" stroke-width="1" />`);
-    parts.push(`<text x="${margin - 12}" y="${y + 3}" text-anchor="end" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+    const tickDirection = yAxisX > width / 2 ? -8 : 8;
+    const labelX = yAxisX - 12;
+    parts.push(`<line x1="${yAxisX}" y1="${y}" x2="${yAxisX + tickDirection}" y2="${y}" stroke="#374151" stroke-width="1" />`);
+    parts.push(`<text x="${labelX}" y="${y + 3}" text-anchor="end" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
   }
 
   if (points.length > 0) {
