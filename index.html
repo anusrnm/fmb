@@ -32,6 +32,10 @@
             <input id="show-gridlines" type="checkbox" checked />
             <span>Gridlines</span>
           </label>
+          <label class="checkbox-row">
+            <input id="canvas-edit-enabled" type="checkbox" />
+            <span>Canvas edit</span>
+          </label>
         </div>
 
         <div class="control-group">
@@ -48,6 +52,10 @@
           <button id="export-btn" type="button">Export SVG</button>
           <button id="import-btn" type="button">Import SVG</button>
           <button id="save-graph-btn" type="button">Save Graph</button>
+        </div>
+        <div class="action-row">
+          <button id="undo-btn" type="button">Undo</button>
+          <button id="redo-btn" type="button">Redo</button>
         </div>
         <input id="import-file" type="file" accept=".svg,.json" hidden />
 
