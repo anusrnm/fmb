@@ -17,12 +17,10 @@ const POINT_HIT_RADIUS_PX = 12;
 const KEYBOARD_NUDGE_DEFAULT = 0.5;
 const KEYBOARD_NUDGE_FINE = 0.1;
 const KEYBOARD_NUDGE_COARSE = 2;
-const EDIT_VIEWPORT_EXPAND_RATIO = 0.12;
-const EDIT_VIEWPORT_EXPAND_MIN_UNITS = 2;
 
 const interactionState = {
   canvasEditEnabled: false,
-  editViewportBounds: null,
+  viewportBounds: null,
   draggingPointIndex: -1,
   selectedPointIndex: -1,
   hoverPointIndex: -1,
@@ -591,50 +589,31 @@ function getViewportBounds(points, joins) {
   };
 }
 
-function expandEditViewportBoundsForPointer(svgPoint, plotSpace) {
-  if (!interactionState.canvasEditEnabled || !interactionState.editViewportBounds) {
+function growViewportToIncludePoints(points, joins) {
+  if (!interactionState.viewportBounds) {
     return false;
   }
 
-  const minPlotX = plotSpace.margin;
-  const maxPlotX = plotSpace.width - plotSpace.margin;
-  const minPlotY = plotSpace.margin;
-  const maxPlotY = plotSpace.height - plotSpace.margin;
-  const innerWidth = Math.max(1, maxPlotX - minPlotX);
-  const innerHeight = Math.max(1, maxPlotY - minPlotY);
+  const fit = getViewportBounds(points, joins);
+  const padX = Math.max((fit.maxX - fit.minX) * 0.05, 1);
+  const padY = Math.max((fit.maxY - fit.minY) * 0.05, 1);
+  const bounds = interactionState.viewportBounds;
+  const next = {
+    minX: Math.min(bounds.minX, fit.minX - padX),
+    maxX: Math.max(bounds.maxX, fit.maxX + padX),
+    minY: Math.min(bounds.minY, fit.minY - padY),
+    maxY: Math.max(bounds.maxY, fit.maxY + padY),
+  };
 
-  const leftOverflow = Math.max(0, minPlotX - svgPoint.x);
-  const rightOverflow = Math.max(0, svgPoint.x - maxPlotX);
-  const topOverflow = Math.max(0, minPlotY - svgPoint.y);
-  const bottomOverflow = Math.max(0, svgPoint.y - maxPlotY);
+  const changed = next.minX !== bounds.minX
+    || next.maxX !== bounds.maxX
+    || next.minY !== bounds.minY
+    || next.maxY !== bounds.maxY;
 
-  if (leftOverflow <= 0 && rightOverflow <= 0 && topOverflow <= 0 && bottomOverflow <= 0) {
-    return false;
+  if (changed) {
+    interactionState.viewportBounds = next;
   }
-
-  const bounds = { ...interactionState.editViewportBounds };
-  const xSpan = Math.max(bounds.maxX - bounds.minX, 1);
-  const ySpan = Math.max(bounds.maxY - bounds.minY, 1);
-
-  const xBaseExpand = Math.max(EDIT_VIEWPORT_EXPAND_MIN_UNITS, xSpan * EDIT_VIEWPORT_EXPAND_RATIO);
-  const yBaseExpand = Math.max(EDIT_VIEWPORT_EXPAND_MIN_UNITS, ySpan * EDIT_VIEWPORT_EXPAND_RATIO);
-
-  if (leftOverflow > 0) {
-    bounds.minX -= xBaseExpand * (1 + leftOverflow / innerWidth);
-  }
-  if (rightOverflow > 0) {
-    bounds.maxX += xBaseExpand * (1 + rightOverflow / innerWidth);
-  }
-  // SVG Y grows downward; dragging above the plot should expand positive Y range.
-  if (topOverflow > 0) {
-    bounds.maxY += yBaseExpand * (1 + topOverflow / innerHeight);
-  }
-  if (bottomOverflow > 0) {
-    bounds.minY -= yBaseExpand * (1 + bottomOverflow / innerHeight);
-  }
-
-  interactionState.editViewportBounds = bounds;
-  return true;
+  return changed;
 }
 
 function getPointDeletionResult(points, selectedPointIndex) {
@@ -799,30 +778,15 @@ function handlePlotPointerMove(event) {
     return;
   }
 
-  let activeModel = model;
-  if (expandEditViewportBoundsForPointer(svgPoint, model.plotSpace)) {
-    render();
-    activeModel = interactionState.renderModel;
-    if (!activeModel) {
-      return;
-    }
-  }
-
-  const { plotSpace } = activeModel;
-  const minPlotX = plotSpace.margin;
-  const maxPlotX = plotSpace.width - plotSpace.margin;
-  const minPlotY = plotSpace.margin;
-  const maxPlotY = plotSpace.height - plotSpace.margin;
-
-  const clampedX = Math.min(Math.max(svgPoint.x, minPlotX), maxPlotX);
-  const clampedY = Math.min(Math.max(svgPoint.y, minPlotY), maxPlotY);
+  // Keep the viewport fixed for the whole drag so the point tracks the cursor 1:1.
+  const { plotSpace } = model;
   const target = interactionState.dragPoints[interactionState.draggingPointIndex];
   if (!target) {
     return;
   }
 
-  target.x = roundCoord(plotSpace.pxToX(clampedX));
-  target.y = roundCoord(plotSpace.pxToY(clampedY));
+  target.x = roundCoord(plotSpace.pxToX(svgPoint.x));
+  target.y = roundCoord(plotSpace.pxToY(svgPoint.y));
   updatePointsInputAndRender(interactionState.dragPoints, null, { recordHistory: false });
 }
 
@@ -844,6 +808,12 @@ function handlePlotPointerUp(event) {
   interactionState.dragStartText = "";
   if (plot && plot.hasPointerCapture(event.pointerId)) {
     plot.releasePointerCapture(event.pointerId);
+  }
+  if (interactionState.renderModel) {
+    const { points, joins } = interactionState.renderModel;
+    if (growViewportToIncludePoints(points, joins)) {
+      render();
+    }
   }
   setPlotInteractionClasses();
   setStatus(`Point ${pointNumber} moved.`);
@@ -998,7 +968,7 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
   const margin = 70;
   const plotSpace = createPlotSpace(points, joins, width, height, margin, {
     expandForEditing: canvasEditEnabled,
-    bounds: interactionState.editViewportBounds ?? null,
+    bounds: interactionState.viewportBounds ?? null,
   });
   const {
     minX,
@@ -1200,8 +1170,8 @@ function render() {
   const interiorAngles = calculateInteriorAngles(points);
   const intersections = findSelfIntersections(points);
 
-  if (interactionState.canvasEditEnabled && !interactionState.editViewportBounds) {
-    interactionState.editViewportBounds = getViewportBounds(points, extraPoints);
+  if (interactionState.canvasEditEnabled && !interactionState.viewportBounds) {
+    interactionState.viewportBounds = getViewportBounds(points, extraPoints);
   }
 
   interactionState.renderModel = {
@@ -1209,7 +1179,7 @@ function render() {
     joins: extraPoints.map((point) => ({ ...point })),
     plotSpace: createPlotSpace(points, extraPoints, 800, 500, 70, {
       expandForEditing: interactionState.canvasEditEnabled,
-      bounds: interactionState.editViewportBounds ?? null,
+      bounds: interactionState.viewportBounds ?? null,
     }),
     intersections,
   };
@@ -1365,6 +1335,49 @@ function toggleTheme() {
   render();
 }
 
+function handlePlotWheel(event) {
+  event.preventDefault();
+  const plot = event.currentTarget;
+  const model = interactionState.renderModel;
+  if (!model) {
+    return;
+  }
+
+  const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+  const { plotSpace } = model;
+  const worldX = plotSpace.pxToX(svgPoint.x);
+  const worldY = plotSpace.pxToY(svgPoint.y);
+
+  const zoomFactor = event.deltaY < 0 ? 1 / 1.15 : 1.15;
+  const bounds = interactionState.viewportBounds ?? {
+    minX: plotSpace.minX,
+    maxX: plotSpace.maxX,
+    minY: plotSpace.minY,
+    maxY: plotSpace.maxY,
+  };
+
+  const newMinX = worldX + (bounds.minX - worldX) * zoomFactor;
+  const newMaxX = worldX + (bounds.maxX - worldX) * zoomFactor;
+  const newMinY = worldY + (bounds.minY - worldY) * zoomFactor;
+  const newMaxY = worldY + (bounds.maxY - worldY) * zoomFactor;
+
+  // Prevent zooming in past a minimum span
+  if (newMaxX - newMinX < 0.5 || newMaxY - newMinY < 0.5) {
+    return;
+  }
+
+  interactionState.viewportBounds = { minX: newMinX, maxX: newMaxX, minY: newMinY, maxY: newMaxY };
+  render();
+}
+
+function handlePlotDoubleClick() {
+  if (interactionState.viewportBounds && !interactionState.canvasEditEnabled) {
+    interactionState.viewportBounds = null;
+    render();
+    setStatus("Zoom reset.");
+  }
+}
+
 function initialize() {
   const pointsInput = document.getElementById("points-input");
   const joinsInput = document.getElementById("joins-input");
@@ -1396,7 +1409,7 @@ function initialize() {
   [pointsInput, joinsInput, centerText].forEach((element) => {
     element.addEventListener("input", () => {
       if (!interactionState.canvasEditEnabled && (element === pointsInput || element === joinsInput)) {
-        interactionState.editViewportBounds = null;
+        interactionState.viewportBounds = null;
       }
       if (element === pointsInput) {
         interactionState.redoStack = [];
@@ -1409,18 +1422,20 @@ function initialize() {
   canvasEditEnabled.addEventListener("change", () => {
     interactionState.canvasEditEnabled = canvasEditEnabled.checked;
     if (interactionState.canvasEditEnabled) {
-      if (interactionState.renderModel?.plotSpace) {
-        const currentSpace = interactionState.renderModel.plotSpace;
-        interactionState.editViewportBounds = {
-          minX: currentSpace.minX,
-          maxX: currentSpace.maxX,
-          minY: currentSpace.minY,
-          maxY: currentSpace.maxY,
-        };
-      } else {
-        const { result: points } = parseCoordinateText(pointsInput.value, "Point");
-        const { result: extraPoints } = parseCoordinateText(joinsInput.value, "Join");
-        interactionState.editViewportBounds = getViewportBounds(points, extraPoints);
+      if (!interactionState.viewportBounds) {
+        if (interactionState.renderModel?.plotSpace) {
+          const currentSpace = interactionState.renderModel.plotSpace;
+          interactionState.viewportBounds = {
+            minX: currentSpace.minX,
+            maxX: currentSpace.maxX,
+            minY: currentSpace.minY,
+            maxY: currentSpace.maxY,
+          };
+        } else {
+          const { result: points } = parseCoordinateText(pointsInput.value, "Point");
+          const { result: extraPoints } = parseCoordinateText(joinsInput.value, "Join");
+          interactionState.viewportBounds = getViewportBounds(points, extraPoints);
+        }
       }
     } else {
       interactionState.selectedPointIndex = -1;
@@ -1447,6 +1462,8 @@ function initialize() {
   plot.addEventListener("pointerup", handlePlotPointerUp);
   plot.addEventListener("pointercancel", handlePlotPointerUp);
   plot.addEventListener("pointerleave", handlePlotPointerLeave);
+  plot.addEventListener("wheel", handlePlotWheel, { passive: false });
+  plot.addEventListener("dblclick", handlePlotDoubleClick);
   document.addEventListener("keydown", handleGlobalKeyDown, true);
   if (themeToggle) {
     themeToggle.addEventListener("click", toggleTheme);
