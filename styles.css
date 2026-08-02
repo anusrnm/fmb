@@ -269,6 +269,14 @@ svg.edit-enabled {
   touch-action: none;
 }
 
+svg.edit-enabled.hover-point {
+  cursor: pointer;
+}
+
+svg.edit-enabled.hover-segment {
+  cursor: copy;
+}
+
 svg.edit-enabled.dragging-point {
   cursor: grabbing;
 }

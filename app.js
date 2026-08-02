@@ -14,13 +14,22 @@ const defaultJoins = "";
 
 const CANVAS_EDIT_DECIMALS = 2;
 const POINT_HIT_RADIUS_PX = 12;
+const KEYBOARD_NUDGE_DEFAULT = 0.5;
+const KEYBOARD_NUDGE_FINE = 0.1;
+const KEYBOARD_NUDGE_COARSE = 2;
+const EDIT_PADDING_FACTOR = 0.35;
+const DRAG_DEADZONE_PX = 1.25;
 
 const interactionState = {
   canvasEditEnabled: false,
+  editViewportBounds: null,
   draggingPointIndex: -1,
   selectedPointIndex: -1,
+  hoverPointIndex: -1,
+  hoverSegmentActive: false,
   dragPoints: null,
   dragStartText: "",
+  dragLastSvgPoint: null,
   renderModel: null,
   undoStack: [],
   redoStack: [],
@@ -417,6 +426,7 @@ function redoPointsChange() {
 }
 
 function createPlotSpace(points, joins, width, height, margin, options = {}) {
+  const bounds = options.bounds || null;
   const expandForEditing = Boolean(options.expandForEditing);
   const paddingFactor = options.paddingFactor ?? 0.35;
   const xValues = [0, ...points.map((point) => point.x), ...joins.map((point) => point.x)];
@@ -432,10 +442,10 @@ function createPlotSpace(points, joins, width, height, margin, options = {}) {
   const paddingX = expandForEditing ? rawXSpan * paddingFactor : 0;
   const paddingY = expandForEditing ? rawYSpan * paddingFactor : 0;
 
-  const minX = rawMinX - paddingX;
-  const maxX = rawMaxX + paddingX;
-  const minY = rawMinY - paddingY;
-  const maxY = rawMaxY + paddingY;
+  const minX = bounds ? bounds.minX : rawMinX - paddingX;
+  const maxX = bounds ? bounds.maxX : rawMaxX + paddingX;
+  const minY = bounds ? bounds.minY : rawMinY - paddingY;
+  const maxY = bounds ? bounds.maxY : rawMaxY + paddingY;
   const xSpan = Math.max(maxX - minX, 1);
   const ySpan = Math.max(maxY - minY, 1);
 
@@ -543,6 +553,17 @@ function setPlotInteractionClasses() {
 
   plot.classList.toggle("edit-enabled", interactionState.canvasEditEnabled);
   plot.classList.toggle("dragging-point", interactionState.draggingPointIndex >= 0);
+  plot.classList.toggle("hover-point", interactionState.hoverPointIndex >= 0 && interactionState.draggingPointIndex < 0);
+  plot.classList.toggle("hover-segment", interactionState.hoverPointIndex < 0 && interactionState.hoverSegmentActive && interactionState.draggingPointIndex < 0);
+}
+
+function clearHoverPoint() {
+  if (interactionState.hoverPointIndex !== -1 || interactionState.hoverSegmentActive) {
+    interactionState.hoverPointIndex = -1;
+    interactionState.hoverSegmentActive = false;
+    setPlotInteractionClasses();
+    render();
+  }
 }
 
 function getPointDeletionResult(points, selectedPointIndex) {
@@ -646,8 +667,10 @@ function handlePlotPointerDown(event) {
     interactionState.draggingPointIndex = nearestPointIndex;
     interactionState.dragPoints = model.points.map((point) => ({ ...point }));
     interactionState.dragStartText = document.getElementById("points-input").value;
+    interactionState.dragLastSvgPoint = svgPoint;
     plot.setPointerCapture(event.pointerId);
     setPlotInteractionClasses();
+    setStatus(`Point ${nearestPointIndex + 1} selected.`);
     return;
   }
 
@@ -661,33 +684,61 @@ function handlePlotPointerDown(event) {
 }
 
 function handlePlotPointerMove(event) {
-  if (!interactionState.canvasEditEnabled || interactionState.draggingPointIndex < 0) {
+  if (!interactionState.canvasEditEnabled) {
     return;
   }
   event.preventDefault();
 
   const plot = event.currentTarget;
   const model = interactionState.renderModel;
-  if (!plot || !model || !interactionState.dragPoints) {
+  if (!plot || !model) {
     return;
   }
 
   const svgPoint = getSvgCoordinatesFromEvent(event, plot);
-  const { plotSpace } = model;
-  const minPlotX = plotSpace.margin;
-  const maxPlotX = plotSpace.width - plotSpace.margin;
-  const minPlotY = plotSpace.margin;
-  const maxPlotY = plotSpace.height - plotSpace.margin;
+  const nearestPointIndex = getNearestPointIndex(svgPoint, model.points, model.plotSpace);
+  const nearestSegment = nearestPointIndex < 0
+    ? getNearestSegmentInsertion(svgPoint, model.points, model.plotSpace)
+    : null;
+  const hoverSegmentActive = Boolean(nearestSegment);
 
-  const clampedX = Math.min(Math.max(svgPoint.x, minPlotX), maxPlotX);
-  const clampedY = Math.min(Math.max(svgPoint.y, minPlotY), maxPlotY);
+  if (hoverSegmentActive !== interactionState.hoverSegmentActive) {
+    interactionState.hoverSegmentActive = hoverSegmentActive;
+    setPlotInteractionClasses();
+  }
+
+  if (nearestPointIndex !== interactionState.hoverPointIndex) {
+    interactionState.hoverPointIndex = nearestPointIndex;
+    setPlotInteractionClasses();
+    if (interactionState.draggingPointIndex < 0) {
+      render();
+      return;
+    }
+  }
+
+  if (interactionState.draggingPointIndex < 0 || !interactionState.dragPoints) {
+    return;
+  }
+
+  if (interactionState.dragLastSvgPoint) {
+    const movement = Math.hypot(
+      svgPoint.x - interactionState.dragLastSvgPoint.x,
+      svgPoint.y - interactionState.dragLastSvgPoint.y,
+    );
+    if (movement < DRAG_DEADZONE_PX) {
+      return;
+    }
+  }
+
+  const { plotSpace } = model;
   const target = interactionState.dragPoints[interactionState.draggingPointIndex];
   if (!target) {
     return;
   }
 
-  target.x = roundCoord(plotSpace.pxToX(clampedX));
-  target.y = roundCoord(plotSpace.pxToY(clampedY));
+  target.x = roundCoord(plotSpace.pxToX(svgPoint.x));
+  target.y = roundCoord(plotSpace.pxToY(svgPoint.y));
+  interactionState.dragLastSvgPoint = svgPoint;
   updatePointsInputAndRender(interactionState.dragPoints, null, { recordHistory: false });
 }
 
@@ -707,12 +758,34 @@ function handlePlotPointerUp(event) {
   interactionState.draggingPointIndex = -1;
   interactionState.dragPoints = null;
   interactionState.dragStartText = "";
+  interactionState.dragLastSvgPoint = null;
   if (plot && plot.hasPointerCapture(event.pointerId)) {
     plot.releasePointerCapture(event.pointerId);
   }
   setPlotInteractionClasses();
   setStatus(`Point ${pointNumber} moved.`);
   updateHistoryButtons();
+}
+
+function handlePlotPointerLeave() {
+  if (!interactionState.canvasEditEnabled || interactionState.draggingPointIndex >= 0) {
+    return;
+  }
+
+  clearHoverPoint();
+}
+
+function getViewportBounds(points, joins) {
+  const baseSpace = createPlotSpace(points, joins, 800, 500, 70, {
+    expandForEditing: false,
+  });
+
+  return {
+    minX: baseSpace.minX,
+    maxX: baseSpace.maxX,
+    minY: baseSpace.minY,
+    maxY: baseSpace.maxY,
+  };
 }
 
 function removeSelectedPoint() {
@@ -735,6 +808,31 @@ function removeSelectedPoint() {
   );
 }
 
+function moveSelectedPointBy(deltaX, deltaY) {
+  const model = interactionState.renderModel;
+  if (!model) {
+    return false;
+  }
+
+  const selectedIndex = interactionState.selectedPointIndex;
+  if (selectedIndex < 0 || selectedIndex >= model.points.length) {
+    setStatus("Select a point first, then use arrow keys to move it.");
+    return false;
+  }
+
+  const nextPoints = model.points.map((point) => ({ ...point }));
+  const target = nextPoints[selectedIndex];
+  target.x = roundCoord(target.x + deltaX);
+  target.y = roundCoord(target.y + deltaY);
+
+  updatePointsInputAndRender(
+    nextPoints,
+    `Point ${selectedIndex + 1} moved to (${target.x.toFixed(2)}, ${target.y.toFixed(2)}).`,
+    { recordHistory: true },
+  );
+  return true;
+}
+
 function isTypingInInputLikeElement() {
   const activeElement = document.activeElement;
   if (!activeElement) {
@@ -742,7 +840,26 @@ function isTypingInInputLikeElement() {
   }
 
   const tagName = activeElement.tagName;
-  return tagName === "INPUT" || tagName === "TEXTAREA" || activeElement.isContentEditable;
+  if (tagName === "TEXTAREA" || activeElement.isContentEditable) {
+    return true;
+  }
+
+  if (tagName !== "INPUT") {
+    return false;
+  }
+
+  const inputType = String(activeElement.getAttribute("type") || "text").toLowerCase();
+  const textInputTypes = new Set([
+    "text",
+    "search",
+    "url",
+    "tel",
+    "email",
+    "password",
+    "number",
+  ]);
+
+  return textInputTypes.has(inputType);
 }
 
 function handleGlobalKeyDown(event) {
@@ -754,6 +871,7 @@ function handleGlobalKeyDown(event) {
   const isRedo = ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y")
     || ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "z");
   const isDelete = event.key === "Delete" || event.key === "Backspace";
+  const isArrowKey = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key);
 
   if (isUndo) {
     event.preventDefault();
@@ -770,16 +888,60 @@ function handleGlobalKeyDown(event) {
   if (isDelete && interactionState.canvasEditEnabled) {
     event.preventDefault();
     removeSelectedPoint();
+    return;
+  }
+
+  if (isArrowKey && interactionState.canvasEditEnabled) {
+    event.preventDefault();
+    const step = event.altKey
+      ? KEYBOARD_NUDGE_FINE
+      : event.shiftKey
+        ? KEYBOARD_NUDGE_COARSE
+        : KEYBOARD_NUDGE_DEFAULT;
+
+    if (event.key === "ArrowUp") {
+      moveSelectedPointBy(0, step);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      moveSelectedPointBy(0, -step);
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      moveSelectedPointBy(-step, 0);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      moveSelectedPointBy(step, 0);
+    }
   }
 }
 
-function buildPlot(points, joins, centerText, showPoints, showGridlines, area, perimeter, angles, selectedPointIndex = -1, canvasEditEnabled = false) {
+function buildPlot(
+  points,
+  joins,
+  centerText,
+  showPoints,
+  showGridlines,
+  area,
+  perimeter,
+  angles,
+  selectedPointIndex = -1,
+  canvasEditEnabled = false,
+  hoverPointIndex = -1,
+) {
   const colors = getThemeColors();
   const width = 800;
   const height = 500;
   const margin = 70;
+  const adaptivePaddingFactor = canvasEditEnabled
+    ? EDIT_PADDING_FACTOR
+    : 0.35;
+  const viewportBounds = canvasEditEnabled ? interactionState.editViewportBounds : null;
   const plotSpace = createPlotSpace(points, joins, width, height, margin, {
     expandForEditing: canvasEditEnabled,
+    paddingFactor: adaptivePaddingFactor,
+    bounds: viewportBounds,
   });
   const {
     minX,
@@ -850,11 +1012,17 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
       if (point.y !== 0) {
         parts.push(`<line x1="${px}" y1="${yToPx(0)}" x2="${px}" y2="${py}" stroke="${colors.plotAux}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" />`);
       }
+      if (pointIndex === hoverPointIndex && pointIndex !== selectedPointIndex) {
+        parts.push(`<circle cx="${px}" cy="${py}" r="7" fill="none" stroke="${colors.plotJoinLabel}" stroke-width="1.8" stroke-dasharray="3 2" vector-effect="non-scaling-stroke" />`);
+      }
+      if (pointIndex === selectedPointIndex) {
+        parts.push(`<circle cx="${px}" cy="${py}" r="10" fill="none" stroke="${colors.plotBg}" stroke-width="4" vector-effect="non-scaling-stroke" />`);
+        parts.push(`<circle cx="${px}" cy="${py}" r="8" fill="none" stroke="${colors.plotAux}" stroke-width="2.4" vector-effect="non-scaling-stroke" />`);
+      }
       if (showPoints) {
-        if (pointIndex === selectedPointIndex) {
-          parts.push(`<circle cx="${px}" cy="${py}" r="8" fill="none" stroke="${colors.plotAux}" stroke-width="2" vector-effect="non-scaling-stroke" />`);
-        }
         parts.push(`<circle cx="${px}" cy="${py}" r="5" fill="${colors.plotPoint}" stroke="${colors.plotBg}" stroke-width="1.5" vector-effect="non-scaling-stroke" />`);
+      } else if (pointIndex === selectedPointIndex) {
+        parts.push(`<circle cx="${px}" cy="${py}" r="3.5" fill="${colors.plotAux}" vector-effect="non-scaling-stroke" />`);
       }
       const pointLabelText = `${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`;
       const label = getLabelPosition(
@@ -964,15 +1132,25 @@ function render() {
   const interiorAngles = calculateInteriorAngles(points);
   const intersections = findSelfIntersections(points);
 
+  if (interactionState.canvasEditEnabled && !interactionState.editViewportBounds) {
+    interactionState.editViewportBounds = getViewportBounds(points, extraPoints);
+  }
+
   interactionState.renderModel = {
     points: points.map((point) => ({ ...point })),
     joins: extraPoints.map((point) => ({ ...point })),
     plotSpace: createPlotSpace(points, extraPoints, 800, 500, 70, {
       expandForEditing: interactionState.canvasEditEnabled,
+      paddingFactor: EDIT_PADDING_FACTOR,
+      bounds: interactionState.canvasEditEnabled ? interactionState.editViewportBounds : null,
     }),
     intersections,
   };
   interactionState.selectedPointIndex = clamp(interactionState.selectedPointIndex, -1, points.length - 1);
+  interactionState.hoverPointIndex = clamp(interactionState.hoverPointIndex, -1, points.length - 1);
+  if (interactionState.hoverPointIndex >= 0) {
+    interactionState.hoverSegmentActive = false;
+  }
 
   const intersectionWarnings = intersections.map((intersection) => {
     return `Boundary self-intersection detected between edges ${intersection.segmentA + 1} and ${intersection.segmentB + 1}.`;
@@ -994,6 +1172,7 @@ function render() {
     interiorAngles,
     interactionState.selectedPointIndex,
     interactionState.canvasEditEnabled,
+    interactionState.hoverPointIndex,
   );
   setPlotInteractionClasses();
   updateHistoryButtons();
@@ -1159,9 +1338,23 @@ function initialize() {
   showGridlines.addEventListener("change", render);
   canvasEditEnabled.addEventListener("change", () => {
     interactionState.canvasEditEnabled = canvasEditEnabled.checked;
+    if (interactionState.canvasEditEnabled) {
+      const { result: points } = parseCoordinateText(pointsInput.value, "Point");
+      const { result: extraPoints } = parseCoordinateText(joinsInput.value, "Join");
+      interactionState.editViewportBounds = getViewportBounds(points, extraPoints);
+    } else {
+      interactionState.editViewportBounds = null;
+      interactionState.selectedPointIndex = -1;
+      interactionState.hoverPointIndex = -1;
+      interactionState.hoverSegmentActive = false;
+      interactionState.draggingPointIndex = -1;
+      interactionState.dragPoints = null;
+      interactionState.dragLastSvgPoint = null;
+    }
     setPlotInteractionClasses();
+    render();
     setStatus(interactionState.canvasEditEnabled
-      ? "Canvas edit enabled: click to add points, drag points to move them."
+      ? "Canvas edit enabled: click to add points, drag points, use arrow keys to nudge selected point."
       : "Canvas edit disabled.");
   });
   exportBtn.addEventListener("click", exportInputs);
@@ -1174,6 +1367,7 @@ function initialize() {
   plot.addEventListener("pointermove", handlePlotPointerMove);
   plot.addEventListener("pointerup", handlePlotPointerUp);
   plot.addEventListener("pointercancel", handlePlotPointerUp);
+  plot.addEventListener("pointerleave", handlePlotPointerLeave);
   document.addEventListener("keydown", handleGlobalKeyDown);
   if (themeToggle) {
     themeToggle.addEventListener("click", toggleTheme);
