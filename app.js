@@ -594,15 +594,25 @@ function growViewportToIncludePoints(points, joins) {
     return false;
   }
 
-  const fit = getViewportBounds(points, joins);
-  const padX = Math.max((fit.maxX - fit.minX) * 0.05, 1);
-  const padY = Math.max((fit.maxY - fit.minY) * 0.05, 1);
+  const all = [...points, ...joins];
+  if (all.length === 0) {
+    return false;
+  }
+
+  const xs = all.map((point) => point.x);
+  const ys = all.map((point) => point.y);
+  const fitMinX = Math.min(...xs);
+  const fitMaxX = Math.max(...xs);
+  const fitMinY = Math.min(...ys);
+  const fitMaxY = Math.max(...ys);
+  const padX = Math.max((fitMaxX - fitMinX) * 0.05, 1);
+  const padY = Math.max((fitMaxY - fitMinY) * 0.05, 1);
   const bounds = interactionState.viewportBounds;
   const next = {
-    minX: Math.min(bounds.minX, fit.minX - padX),
-    maxX: Math.max(bounds.maxX, fit.maxX + padX),
-    minY: Math.min(bounds.minY, fit.minY - padY),
-    maxY: Math.max(bounds.maxY, fit.maxY + padY),
+    minX: Math.min(bounds.minX, fitMinX - padX),
+    maxX: Math.max(bounds.maxX, fitMaxX + padX),
+    minY: Math.min(bounds.minY, fitMinY - padY),
+    maxY: Math.max(bounds.maxY, fitMaxY + padY),
   };
 
   const changed = next.minX !== bounds.minX
