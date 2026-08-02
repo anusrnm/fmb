@@ -17,8 +17,8 @@ const POINT_HIT_RADIUS_PX = 12;
 const KEYBOARD_NUDGE_DEFAULT = 0.5;
 const KEYBOARD_NUDGE_FINE = 0.1;
 const KEYBOARD_NUDGE_COARSE = 2;
-const EDIT_PADDING_FACTOR = 0.35;
-const DRAG_DEADZONE_PX = 1.25;
+const EDIT_VIEWPORT_EXPAND_RATIO = 0.12;
+const EDIT_VIEWPORT_EXPAND_MIN_UNITS = 2;
 
 const interactionState = {
   canvasEditEnabled: false,
@@ -29,7 +29,6 @@ const interactionState = {
   hoverSegmentActive: false,
   dragPoints: null,
   dragStartText: "",
-  dragLastSvgPoint: null,
   renderModel: null,
   undoStack: [],
   redoStack: [],
@@ -310,26 +309,33 @@ function normalizeAngleRadians(angle) {
   return normalized;
 }
 
-function getAngleArcGeometry(previousPoint, vertexPoint, nextPoint, radius) {
+function getAngleArcGeometry(previousPoint, vertexPoint, nextPoint, radius, interiorAngleDegrees) {
   const startAngle = Math.atan2(previousPoint.y - vertexPoint.y, previousPoint.x - vertexPoint.x);
   const endAngleRaw = Math.atan2(nextPoint.y - vertexPoint.y, nextPoint.x - vertexPoint.x);
-  let delta = normalizeAngleRadians(endAngleRaw - startAngle);
+  const deltaShort = normalizeAngleRadians(endAngleRaw - startAngle);
 
-  if (Math.abs(delta) < 1e-6) {
+  if (Math.abs(deltaShort) < 1e-6) {
     return null;
   }
 
-  const sweepFlag = delta > 0 ? 1 : 0;
+  const isReflex = interiorAngleDegrees > 180;
+  const displayedAngle = isReflex ? 360 - interiorAngleDegrees : interiorAngleDegrees;
+  const largeArcFlag = 0;
+  const sweepFlag = deltaShort > 0 ? 1 : 0;
+  const deltaForLabel = deltaShort;
   const arcStartX = vertexPoint.x + radius * Math.cos(startAngle);
   const arcStartY = vertexPoint.y + radius * Math.sin(startAngle);
-  const arcEndX = vertexPoint.x + radius * Math.cos(startAngle + delta);
-  const arcEndY = vertexPoint.y + radius * Math.sin(startAngle + delta);
-  const bisectorAngle = startAngle + delta / 2;
+  const arcEndX = vertexPoint.x + radius * Math.cos(endAngleRaw);
+  const arcEndY = vertexPoint.y + radius * Math.sin(endAngleRaw);
+  const bisectorAngle = startAngle + deltaForLabel / 2;
   const labelRadius = radius + 14;
   const labelX = vertexPoint.x + labelRadius * Math.cos(bisectorAngle);
   const labelY = vertexPoint.y + labelRadius * Math.sin(bisectorAngle);
 
   return {
+    isReflex,
+    displayedAngle,
+    largeArcFlag,
     sweepFlag,
     arcStartX,
     arcStartY,
@@ -553,17 +559,82 @@ function setPlotInteractionClasses() {
 
   plot.classList.toggle("edit-enabled", interactionState.canvasEditEnabled);
   plot.classList.toggle("dragging-point", interactionState.draggingPointIndex >= 0);
-  plot.classList.toggle("hover-point", interactionState.hoverPointIndex >= 0 && interactionState.draggingPointIndex < 0);
-  plot.classList.toggle("hover-segment", interactionState.hoverPointIndex < 0 && interactionState.hoverSegmentActive && interactionState.draggingPointIndex < 0);
+  plot.classList.toggle(
+    "hover-point",
+    interactionState.canvasEditEnabled && interactionState.hoverPointIndex >= 0 && interactionState.draggingPointIndex < 0,
+  );
+  plot.classList.toggle(
+    "hover-segment",
+    interactionState.canvasEditEnabled && interactionState.hoverPointIndex < 0 && interactionState.hoverSegmentActive && interactionState.draggingPointIndex < 0,
+  );
 }
 
-function clearHoverPoint() {
+function clearHoverState() {
   if (interactionState.hoverPointIndex !== -1 || interactionState.hoverSegmentActive) {
     interactionState.hoverPointIndex = -1;
     interactionState.hoverSegmentActive = false;
     setPlotInteractionClasses();
     render();
   }
+}
+
+function getViewportBounds(points, joins) {
+  const plotSpace = createPlotSpace(points, joins, 800, 500, 70, {
+    expandForEditing: false,
+  });
+
+  return {
+    minX: plotSpace.minX,
+    maxX: plotSpace.maxX,
+    minY: plotSpace.minY,
+    maxY: plotSpace.maxY,
+  };
+}
+
+function expandEditViewportBoundsForPointer(svgPoint, plotSpace) {
+  if (!interactionState.canvasEditEnabled || !interactionState.editViewportBounds) {
+    return false;
+  }
+
+  const minPlotX = plotSpace.margin;
+  const maxPlotX = plotSpace.width - plotSpace.margin;
+  const minPlotY = plotSpace.margin;
+  const maxPlotY = plotSpace.height - plotSpace.margin;
+  const innerWidth = Math.max(1, maxPlotX - minPlotX);
+  const innerHeight = Math.max(1, maxPlotY - minPlotY);
+
+  const leftOverflow = Math.max(0, minPlotX - svgPoint.x);
+  const rightOverflow = Math.max(0, svgPoint.x - maxPlotX);
+  const topOverflow = Math.max(0, minPlotY - svgPoint.y);
+  const bottomOverflow = Math.max(0, svgPoint.y - maxPlotY);
+
+  if (leftOverflow <= 0 && rightOverflow <= 0 && topOverflow <= 0 && bottomOverflow <= 0) {
+    return false;
+  }
+
+  const bounds = { ...interactionState.editViewportBounds };
+  const xSpan = Math.max(bounds.maxX - bounds.minX, 1);
+  const ySpan = Math.max(bounds.maxY - bounds.minY, 1);
+
+  const xBaseExpand = Math.max(EDIT_VIEWPORT_EXPAND_MIN_UNITS, xSpan * EDIT_VIEWPORT_EXPAND_RATIO);
+  const yBaseExpand = Math.max(EDIT_VIEWPORT_EXPAND_MIN_UNITS, ySpan * EDIT_VIEWPORT_EXPAND_RATIO);
+
+  if (leftOverflow > 0) {
+    bounds.minX -= xBaseExpand * (1 + leftOverflow / innerWidth);
+  }
+  if (rightOverflow > 0) {
+    bounds.maxX += xBaseExpand * (1 + rightOverflow / innerWidth);
+  }
+  // SVG Y grows downward; dragging above the plot should expand positive Y range.
+  if (topOverflow > 0) {
+    bounds.maxY += yBaseExpand * (1 + topOverflow / innerHeight);
+  }
+  if (bottomOverflow > 0) {
+    bounds.minY -= yBaseExpand * (1 + bottomOverflow / innerHeight);
+  }
+
+  interactionState.editViewportBounds = bounds;
+  return true;
 }
 
 function getPointDeletionResult(points, selectedPointIndex) {
@@ -653,10 +724,19 @@ function handlePlotPointerDown(event) {
   }
   event.preventDefault();
 
+  const activeElement = document.activeElement;
+  if (activeElement && typeof activeElement.blur === "function") {
+    activeElement.blur();
+  }
+
   const plot = event.currentTarget;
   const model = interactionState.renderModel;
   if (!plot || !model) {
     return;
+  }
+
+  if (typeof plot.focus === "function") {
+    plot.focus({ preventScroll: true });
   }
 
   const svgPoint = getSvgCoordinatesFromEvent(event, plot);
@@ -667,7 +747,8 @@ function handlePlotPointerDown(event) {
     interactionState.draggingPointIndex = nearestPointIndex;
     interactionState.dragPoints = model.points.map((point) => ({ ...point }));
     interactionState.dragStartText = document.getElementById("points-input").value;
-    interactionState.dragLastSvgPoint = svgPoint;
+    interactionState.hoverPointIndex = nearestPointIndex;
+    interactionState.hoverSegmentActive = false;
     plot.setPointerCapture(event.pointerId);
     setPlotInteractionClasses();
     setStatus(`Point ${nearestPointIndex + 1} selected.`);
@@ -701,14 +782,12 @@ function handlePlotPointerMove(event) {
     ? getNearestSegmentInsertion(svgPoint, model.points, model.plotSpace)
     : null;
   const hoverSegmentActive = Boolean(nearestSegment);
+  const hoverChanged = nearestPointIndex !== interactionState.hoverPointIndex
+    || hoverSegmentActive !== interactionState.hoverSegmentActive;
 
-  if (hoverSegmentActive !== interactionState.hoverSegmentActive) {
-    interactionState.hoverSegmentActive = hoverSegmentActive;
-    setPlotInteractionClasses();
-  }
-
-  if (nearestPointIndex !== interactionState.hoverPointIndex) {
+  if (hoverChanged) {
     interactionState.hoverPointIndex = nearestPointIndex;
+    interactionState.hoverSegmentActive = hoverSegmentActive;
     setPlotInteractionClasses();
     if (interactionState.draggingPointIndex < 0) {
       render();
@@ -720,25 +799,30 @@ function handlePlotPointerMove(event) {
     return;
   }
 
-  if (interactionState.dragLastSvgPoint) {
-    const movement = Math.hypot(
-      svgPoint.x - interactionState.dragLastSvgPoint.x,
-      svgPoint.y - interactionState.dragLastSvgPoint.y,
-    );
-    if (movement < DRAG_DEADZONE_PX) {
+  let activeModel = model;
+  if (expandEditViewportBoundsForPointer(svgPoint, model.plotSpace)) {
+    render();
+    activeModel = interactionState.renderModel;
+    if (!activeModel) {
       return;
     }
   }
 
-  const { plotSpace } = model;
+  const { plotSpace } = activeModel;
+  const minPlotX = plotSpace.margin;
+  const maxPlotX = plotSpace.width - plotSpace.margin;
+  const minPlotY = plotSpace.margin;
+  const maxPlotY = plotSpace.height - plotSpace.margin;
+
+  const clampedX = Math.min(Math.max(svgPoint.x, minPlotX), maxPlotX);
+  const clampedY = Math.min(Math.max(svgPoint.y, minPlotY), maxPlotY);
   const target = interactionState.dragPoints[interactionState.draggingPointIndex];
   if (!target) {
     return;
   }
 
-  target.x = roundCoord(plotSpace.pxToX(svgPoint.x));
-  target.y = roundCoord(plotSpace.pxToY(svgPoint.y));
-  interactionState.dragLastSvgPoint = svgPoint;
+  target.x = roundCoord(plotSpace.pxToX(clampedX));
+  target.y = roundCoord(plotSpace.pxToY(clampedY));
   updatePointsInputAndRender(interactionState.dragPoints, null, { recordHistory: false });
 }
 
@@ -758,7 +842,6 @@ function handlePlotPointerUp(event) {
   interactionState.draggingPointIndex = -1;
   interactionState.dragPoints = null;
   interactionState.dragStartText = "";
-  interactionState.dragLastSvgPoint = null;
   if (plot && plot.hasPointerCapture(event.pointerId)) {
     plot.releasePointerCapture(event.pointerId);
   }
@@ -772,20 +855,7 @@ function handlePlotPointerLeave() {
     return;
   }
 
-  clearHoverPoint();
-}
-
-function getViewportBounds(points, joins) {
-  const baseSpace = createPlotSpace(points, joins, 800, 500, 70, {
-    expandForEditing: false,
-  });
-
-  return {
-    minX: baseSpace.minX,
-    maxX: baseSpace.maxX,
-    minY: baseSpace.minY,
-    maxY: baseSpace.maxY,
-  };
+  clearHoverState();
 }
 
 function removeSelectedPoint() {
@@ -811,26 +881,25 @@ function removeSelectedPoint() {
 function moveSelectedPointBy(deltaX, deltaY) {
   const model = interactionState.renderModel;
   if (!model) {
-    return false;
+    return;
   }
 
   const selectedIndex = interactionState.selectedPointIndex;
   if (selectedIndex < 0 || selectedIndex >= model.points.length) {
-    setStatus("Select a point first, then use arrow keys to move it.");
-    return false;
+    setStatus("Select a point first, then use arrow keys.");
+    return;
   }
 
   const nextPoints = model.points.map((point) => ({ ...point }));
-  const target = nextPoints[selectedIndex];
-  target.x = roundCoord(target.x + deltaX);
-  target.y = roundCoord(target.y + deltaY);
+  const selectedPoint = nextPoints[selectedIndex];
+  selectedPoint.x = roundCoord(selectedPoint.x + deltaX);
+  selectedPoint.y = roundCoord(selectedPoint.y + deltaY);
 
   updatePointsInputAndRender(
     nextPoints,
-    `Point ${selectedIndex + 1} moved to (${target.x.toFixed(2)}, ${target.y.toFixed(2)}).`,
+    `Point ${selectedIndex + 1} moved to (${selectedPoint.x.toFixed(2)}, ${selectedPoint.y.toFixed(2)}).`,
     { recordHistory: true },
   );
-  return true;
 }
 
 function isTypingInInputLikeElement() {
@@ -862,8 +931,13 @@ function isTypingInInputLikeElement() {
   return textInputTypes.has(inputType);
 }
 
+function isPlotFocused() {
+  const activeElement = document.activeElement;
+  return activeElement?.id === "plot";
+}
+
 function handleGlobalKeyDown(event) {
-  if (isTypingInInputLikeElement()) {
+  if (isTypingInInputLikeElement() && !isPlotFocused()) {
     return;
   }
 
@@ -917,31 +991,14 @@ function handleGlobalKeyDown(event) {
   }
 }
 
-function buildPlot(
-  points,
-  joins,
-  centerText,
-  showPoints,
-  showGridlines,
-  area,
-  perimeter,
-  angles,
-  selectedPointIndex = -1,
-  canvasEditEnabled = false,
-  hoverPointIndex = -1,
-) {
+function buildPlot(points, joins, centerText, showPoints, showGridlines, area, perimeter, angles, selectedPointIndex = -1, canvasEditEnabled = false) {
   const colors = getThemeColors();
   const width = 800;
   const height = 500;
   const margin = 70;
-  const adaptivePaddingFactor = canvasEditEnabled
-    ? EDIT_PADDING_FACTOR
-    : 0.35;
-  const viewportBounds = canvasEditEnabled ? interactionState.editViewportBounds : null;
   const plotSpace = createPlotSpace(points, joins, width, height, margin, {
     expandForEditing: canvasEditEnabled,
-    paddingFactor: adaptivePaddingFactor,
-    bounds: viewportBounds,
+    bounds: interactionState.editViewportBounds ?? null,
   });
   const {
     minX,
@@ -1012,16 +1069,16 @@ function buildPlot(
       if (point.y !== 0) {
         parts.push(`<line x1="${px}" y1="${yToPx(0)}" x2="${px}" y2="${py}" stroke="${colors.plotAux}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" />`);
       }
-      if (pointIndex === hoverPointIndex && pointIndex !== selectedPointIndex) {
+      if (canvasEditEnabled && pointIndex === interactionState.hoverPointIndex && pointIndex !== selectedPointIndex) {
         parts.push(`<circle cx="${px}" cy="${py}" r="7" fill="none" stroke="${colors.plotJoinLabel}" stroke-width="1.8" stroke-dasharray="3 2" vector-effect="non-scaling-stroke" />`);
       }
-      if (pointIndex === selectedPointIndex) {
+      if (canvasEditEnabled && pointIndex === selectedPointIndex) {
         parts.push(`<circle cx="${px}" cy="${py}" r="10" fill="none" stroke="${colors.plotBg}" stroke-width="4" vector-effect="non-scaling-stroke" />`);
         parts.push(`<circle cx="${px}" cy="${py}" r="8" fill="none" stroke="${colors.plotAux}" stroke-width="2.4" vector-effect="non-scaling-stroke" />`);
       }
       if (showPoints) {
         parts.push(`<circle cx="${px}" cy="${py}" r="5" fill="${colors.plotPoint}" stroke="${colors.plotBg}" stroke-width="1.5" vector-effect="non-scaling-stroke" />`);
-      } else if (pointIndex === selectedPointIndex) {
+      } else if (canvasEditEnabled && pointIndex === selectedPointIndex) {
         parts.push(`<circle cx="${px}" cy="${py}" r="3.5" fill="${colors.plotAux}" vector-effect="non-scaling-stroke" />`);
       }
       const pointLabelText = `${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`;
@@ -1064,13 +1121,24 @@ function buildPlot(
       const vertexPx = { x: xToPx(vertex.x), y: yToPx(vertex.y) };
       const previousPx = { x: xToPx(previous.x), y: yToPx(previous.y) };
       const nextPx = { x: xToPx(next.x), y: yToPx(next.y) };
-      const arcRadius = 16;
-      const arcGeometry = getAngleArcGeometry(previousPx, vertexPx, nextPx, arcRadius);
+      const edgeLenA = calculateDistance(vertexPx, previousPx);
+      const edgeLenB = calculateDistance(vertexPx, nextPx);
+      const shortestEdge = Math.min(edgeLenA, edgeLenB);
+      const arcRadius = Math.max(8, Math.min(14, shortestEdge * 0.2));
+      const arcGeometry = getAngleArcGeometry(previousPx, vertexPx, nextPx, arcRadius, interiorAngle);
       if (!arcGeometry) {
         continue;
       }
 
-      parts.push(`<path d="M ${arcGeometry.arcStartX} ${arcGeometry.arcStartY} A ${arcRadius} ${arcRadius} 0 0 ${arcGeometry.sweepFlag} ${arcGeometry.arcEndX} ${arcGeometry.arcEndY}" fill="none" stroke="${colors.plotAreaText}" stroke-width="1.8" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
+      parts.push(`<path d="M ${arcGeometry.arcStartX} ${arcGeometry.arcStartY} A ${arcRadius} ${arcRadius} 0 ${arcGeometry.largeArcFlag} ${arcGeometry.sweepFlag} ${arcGeometry.arcEndX} ${arcGeometry.arcEndY}" fill="none" stroke="${colors.plotAreaText}" stroke-width="1.8" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
+      if (arcGeometry.isReflex) {
+        const innerRadius = Math.max(5.5, arcRadius - 3);
+        const innerStartX = vertexPx.x + innerRadius * Math.cos(Math.atan2(previousPx.y - vertexPx.y, previousPx.x - vertexPx.x));
+        const innerStartY = vertexPx.y + innerRadius * Math.sin(Math.atan2(previousPx.y - vertexPx.y, previousPx.x - vertexPx.x));
+        const innerEndX = vertexPx.x + innerRadius * Math.cos(Math.atan2(nextPx.y - vertexPx.y, nextPx.x - vertexPx.x));
+        const innerEndY = vertexPx.y + innerRadius * Math.sin(Math.atan2(nextPx.y - vertexPx.y, nextPx.x - vertexPx.x));
+        parts.push(`<path d="M ${innerStartX} ${innerStartY} A ${innerRadius} ${innerRadius} 0 0 ${arcGeometry.sweepFlag} ${innerEndX} ${innerEndY}" fill="none" stroke="${colors.plotAreaText}" stroke-width="1.2" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
+      }
       const angleLabelText = `${interiorAngle.toFixed(1)}°`;
       const angleLabel = getLabelPosition(
         arcGeometry.labelX,
@@ -1141,8 +1209,7 @@ function render() {
     joins: extraPoints.map((point) => ({ ...point })),
     plotSpace: createPlotSpace(points, extraPoints, 800, 500, 70, {
       expandForEditing: interactionState.canvasEditEnabled,
-      paddingFactor: EDIT_PADDING_FACTOR,
-      bounds: interactionState.canvasEditEnabled ? interactionState.editViewportBounds : null,
+      bounds: interactionState.editViewportBounds ?? null,
     }),
     intersections,
   };
@@ -1172,7 +1239,6 @@ function render() {
     interiorAngles,
     interactionState.selectedPointIndex,
     interactionState.canvasEditEnabled,
-    interactionState.hoverPointIndex,
   );
   setPlotInteractionClasses();
   updateHistoryButtons();
@@ -1314,6 +1380,7 @@ function initialize() {
   const importFile = document.getElementById("import-file");
   const themeToggle = document.getElementById("theme-toggle");
   const plot = document.getElementById("plot");
+  plot.setAttribute("tabindex", "0");
 
   const savedTheme = getSavedTheme();
   applyTheme(savedTheme === "dark" ? "dark" : "light");
@@ -1328,6 +1395,9 @@ function initialize() {
 
   [pointsInput, joinsInput, centerText].forEach((element) => {
     element.addEventListener("input", () => {
+      if (!interactionState.canvasEditEnabled && (element === pointsInput || element === joinsInput)) {
+        interactionState.editViewportBounds = null;
+      }
       if (element === pointsInput) {
         interactionState.redoStack = [];
       }
@@ -1339,22 +1409,31 @@ function initialize() {
   canvasEditEnabled.addEventListener("change", () => {
     interactionState.canvasEditEnabled = canvasEditEnabled.checked;
     if (interactionState.canvasEditEnabled) {
-      const { result: points } = parseCoordinateText(pointsInput.value, "Point");
-      const { result: extraPoints } = parseCoordinateText(joinsInput.value, "Join");
-      interactionState.editViewportBounds = getViewportBounds(points, extraPoints);
+      if (interactionState.renderModel?.plotSpace) {
+        const currentSpace = interactionState.renderModel.plotSpace;
+        interactionState.editViewportBounds = {
+          minX: currentSpace.minX,
+          maxX: currentSpace.maxX,
+          minY: currentSpace.minY,
+          maxY: currentSpace.maxY,
+        };
+      } else {
+        const { result: points } = parseCoordinateText(pointsInput.value, "Point");
+        const { result: extraPoints } = parseCoordinateText(joinsInput.value, "Join");
+        interactionState.editViewportBounds = getViewportBounds(points, extraPoints);
+      }
     } else {
-      interactionState.editViewportBounds = null;
       interactionState.selectedPointIndex = -1;
       interactionState.hoverPointIndex = -1;
       interactionState.hoverSegmentActive = false;
       interactionState.draggingPointIndex = -1;
       interactionState.dragPoints = null;
-      interactionState.dragLastSvgPoint = null;
+      interactionState.dragStartText = "";
     }
     setPlotInteractionClasses();
     render();
     setStatus(interactionState.canvasEditEnabled
-      ? "Canvas edit enabled: click to add points, drag points, use arrow keys to nudge selected point."
+      ? "Canvas edit enabled: click to add points, drag points to move them."
       : "Canvas edit disabled.");
   });
   exportBtn.addEventListener("click", exportInputs);
@@ -1368,7 +1447,7 @@ function initialize() {
   plot.addEventListener("pointerup", handlePlotPointerUp);
   plot.addEventListener("pointercancel", handlePlotPointerUp);
   plot.addEventListener("pointerleave", handlePlotPointerLeave);
-  document.addEventListener("keydown", handleGlobalKeyDown);
+  document.addEventListener("keydown", handleGlobalKeyDown, true);
   if (themeToggle) {
     themeToggle.addEventListener("click", toggleTheme);
   }
