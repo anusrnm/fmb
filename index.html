@@ -18,9 +18,8 @@
           </p>
         </div>
 
-        <div class="control-group">
-          <label for="center-text">Center text</label>
-          <input id="center-text" type="text" placeholder="Enter text to show in the middle of the plot" />
+        <div class="action-row">
+          <button id="add-text-btn" type="button">Add text</button>
         </div>
 
         <div class="compact-row">
@@ -33,9 +32,34 @@
             <span>Gridlines</span>
           </label>
           <label class="checkbox-row">
-            <input id="canvas-edit-enabled" type="checkbox" />
-            <span>Canvas edit</span>
+            <input id="show-labels" type="checkbox" checked />
+            <span>Labels</span>
           </label>
+          <label class="checkbox-row">
+            <input id="show-angle-arcs" type="checkbox" checked />
+            <span>Angle arcs</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="show-segments" type="checkbox" checked />
+            <span>Segments</span>
+          </label>
+        </div>
+
+        <div class="control-group">
+          <span class="control-label">Plot colors</span>
+          <div class="color-grid">
+            <label>Boundary <input id="color-boundary" type="color" /></label>
+            <label>Points <input id="color-point" type="color" /></label>
+            <label>Labels <input id="color-label" type="color" /></label>
+            <label>Segments <input id="color-segment" type="color" /></label>
+            <label>Arcs <input id="color-arc" type="color" /></label>
+            <button id="reset-colors-btn" type="button">Reset colors</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="text-size">Selected text size <output id="text-size-value" for="text-size">16 px</output></label>
+          <input id="text-size" type="range" min="10" max="48" value="16" />
         </div>
 
         <div class="control-group">
@@ -44,8 +68,8 @@
         </div>
 
         <div class="control-group">
-          <label for="joins-input">Joins</label>
-          <textarea id="joins-input" rows="5" placeholder="Corner A, 0, 0 | Corner C, 80, -35"></textarea>
+          <label for="joins-input">Segments</label>
+          <textarea id="joins-input" rows="5" placeholder="Segment point 1, 0, 0&#10;Segment point 2, 80, -35"></textarea>
         </div>
 
         <div class="action-row">
@@ -54,6 +78,7 @@
           <button id="save-graph-btn" type="button">Save Graph</button>
         </div>
         <div class="action-row">
+          <button id="create-segment-btn" type="button">Create segment</button>
           <button id="undo-btn" type="button">Undo</button>
           <button id="redo-btn" type="button">Redo</button>
         </div>

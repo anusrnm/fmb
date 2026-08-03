@@ -1,6 +1,5 @@
 import {
   calculateDistance,
-  calculateInteriorAngles,
   calculatePerimeter,
   findSelfIntersections,
 } from './distance.js';
@@ -19,10 +18,17 @@ const KEYBOARD_NUDGE_FINE = 0.1;
 const KEYBOARD_NUDGE_COARSE = 2;
 
 const interactionState = {
-  canvasEditEnabled: false,
   viewportBounds: null,
   draggingPointIndex: -1,
   selectedPointIndex: -1,
+  selectedPointIndices: new Set(),
+  selectedArcIndex: -1,
+  angleArcs: [],
+  segments: [],
+  annotations: [],
+  selectedAnnotationIndex: -1,
+  draggingAnnotationIndex: -1,
+  annotationDragOffset: null,
   hoverPointIndex: -1,
   hoverSegmentActive: false,
   dragPoints: null,
@@ -49,6 +55,20 @@ function setStatus(message) {
   }
 }
 
+function syncTextSizeControl() {
+  const textSize = document.getElementById("text-size");
+  const textSizeValue = document.getElementById("text-size-value");
+  const annotation = interactionState.annotations[interactionState.selectedAnnotationIndex];
+  const size = clamp(Number(annotation?.fontSize) || 16, 10, 48);
+  if (textSize) {
+    textSize.value = String(size);
+  }
+  if (textSizeValue) {
+    textSizeValue.value = `${size} px`;
+    textSizeValue.textContent = `${size} px`;
+  }
+}
+
 function getDownloadBaseName(value, fallback) {
   const trimmed = String(value || "").trim();
   const normalized = trimmed
@@ -64,19 +84,60 @@ function getDownloadBaseName(value, fallback) {
 function getCurrentConfig() {
   const pointsInput = document.getElementById("points-input");
   const joinsInput = document.getElementById("joins-input");
-  const centerText = document.getElementById("center-text");
   const showPoints = document.getElementById("show-points");
   const showGridlines = document.getElementById("show-gridlines");
-  const canvasEditEnabled = document.getElementById("canvas-edit-enabled");
+  const showLabels = document.getElementById("show-labels");
+  const showAngleArcs = document.getElementById("show-angle-arcs");
+  const showSegments = document.getElementById("show-segments");
 
   return {
     points: pointsInput.value,
     joins: joinsInput.value,
-    centerText: centerText.value,
     showPoints: showPoints.checked,
     showGridlines: showGridlines.checked,
-    canvasEditEnabled: Boolean(canvasEditEnabled?.checked),
+    showLabels: showLabels.checked,
+    showAngleArcs: showAngleArcs.checked,
+    showSegments: showSegments.checked,
+    angleArcs: interactionState.angleArcs,
+    segments: interactionState.segments,
+    annotations: interactionState.annotations,
+    colors: getColorSettings(),
   };
+}
+
+const colorSettings = [
+  ["color-boundary", "--plot-boundary"],
+  ["color-point", "--plot-point"],
+  ["color-label", "--plot-text"],
+  ["color-segment", "--plot-join"],
+  ["color-arc", "--plot-area-text"],
+];
+
+function getColorSettings() {
+  return Object.fromEntries(colorSettings.map(([inputId, property]) => {
+    return [property, document.getElementById(inputId)?.value || ""];
+  }));
+}
+
+function applyColorSettings(colors = {}) {
+  colorSettings.forEach(([inputId, property]) => {
+    const input = document.getElementById(inputId);
+    const color = colors[property];
+    if (input && /^#[0-9a-f]{6}$/i.test(color || "")) {
+      input.value = color;
+      document.documentElement.style.setProperty(property, color);
+    }
+  });
+}
+
+function resetColorSettings() {
+  colorSettings.forEach(([inputId, property]) => {
+    document.documentElement.style.removeProperty(property);
+    const input = document.getElementById(inputId);
+    if (input) {
+      input.value = getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+    }
+  });
 }
 
 function buildSvgDocument(svgContent, config, viewBox, width, height) {
@@ -289,6 +350,135 @@ function getThemeColors() {
 function roundCoord(value) {
   const factor = 10 ** CANVAS_EDIT_DECIMALS;
   return Math.round(value * factor) / factor;
+}
+
+function calculateAngleDegrees(firstPoint, vertexPoint, lastPoint) {
+  const firstVector = { x: firstPoint.x - vertexPoint.x, y: firstPoint.y - vertexPoint.y };
+  const lastVector = { x: lastPoint.x - vertexPoint.x, y: lastPoint.y - vertexPoint.y };
+  const magnitude = Math.hypot(firstVector.x, firstVector.y) * Math.hypot(lastVector.x, lastVector.y);
+  if (magnitude === 0) {
+    return Number.NaN;
+  }
+
+  const cosine = clamp((firstVector.x * lastVector.x + firstVector.y * lastVector.y) / magnitude, -1, 1);
+  return Math.acos(cosine) * (180 / Math.PI);
+}
+
+function normalizeGeometrySelections(pointCount) {
+  interactionState.selectedPointIndices = new Set(
+    [...interactionState.selectedPointIndices].filter((index) => index >= 0 && index < pointCount),
+  );
+  interactionState.selectedPointIndex = interactionState.selectedPointIndices.size === 1
+    ? [...interactionState.selectedPointIndices][0]
+    : -1;
+  interactionState.angleArcs = interactionState.angleArcs.filter((arc) => {
+    return Array.isArray(arc) && arc.length === 3 && arc.every((index) => Number.isInteger(index) && index >= 0 && index < pointCount);
+  });
+  interactionState.segments = interactionState.segments.filter((segment) => {
+    return Array.isArray(segment) && segment.length === 2 && segment.every((index) => Number.isInteger(index) && index >= 0 && index < pointCount);
+  });
+  interactionState.selectedArcIndex = clamp(interactionState.selectedArcIndex, -1, interactionState.angleArcs.length - 1);
+}
+
+function adjustGeometryIndices(afterIndex, delta) {
+  const adjust = (index) => index >= afterIndex ? index + delta : index;
+  interactionState.selectedPointIndices = new Set([...interactionState.selectedPointIndices].map(adjust));
+  interactionState.angleArcs = interactionState.angleArcs.map((arc) => arc.map(adjust));
+  interactionState.segments = interactionState.segments.map((segment) => segment.map(adjust));
+}
+
+function addAngleArcFromSelection() {
+  if (interactionState.selectedPointIndices.size !== 3) {
+    return false;
+  }
+
+  const arc = [...interactionState.selectedPointIndices];
+  const alreadyExists = interactionState.angleArcs.some((existingArc) => existingArc.every((index, position) => index === arc[position]));
+  if (!alreadyExists) {
+    interactionState.angleArcs.push(arc);
+    interactionState.selectedArcIndex = interactionState.angleArcs.length - 1;
+  }
+  return true;
+}
+
+function addSegmentFromSelection() {
+  if (interactionState.selectedPointIndices.size !== 2) {
+    setStatus("Ctrl-select exactly two points to create a segment.");
+    return;
+  }
+
+  const segment = [...interactionState.selectedPointIndices];
+  const alreadyExists = interactionState.segments.some((existingSegment) => {
+    return (existingSegment[0] === segment[0] && existingSegment[1] === segment[1])
+      || (existingSegment[0] === segment[1] && existingSegment[1] === segment[0]);
+  });
+  if (!alreadyExists) {
+    interactionState.segments.push(segment);
+  }
+  render();
+  setStatus(alreadyExists ? "That segment already exists." : "Segment created from the two selected points.");
+}
+
+function addTextAnnotation() {
+  const model = interactionState.renderModel;
+  if (!model) {
+    return;
+  }
+
+  const textSize = Number(document.getElementById("text-size").value);
+  interactionState.annotations.push({
+    text: "New text",
+    x: roundCoord((model.plotSpace.minX + model.plotSpace.maxX) / 2),
+    y: roundCoord((model.plotSpace.minY + model.plotSpace.maxY) / 2),
+    fontSize: textSize,
+  });
+  interactionState.selectedAnnotationIndex = interactionState.annotations.length - 1;
+  syncTextSizeControl();
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector(`[data-annotation-editor="${interactionState.selectedAnnotationIndex}"]`)?.focus();
+  });
+  setStatus("Text added. Edit it directly on the plot.");
+}
+
+function getAnnotationIndexFromTarget(target) {
+  const annotationElement = target instanceof Element ? target.closest("[data-annotation-index]") : null;
+  return Number(annotationElement?.dataset.annotationIndex);
+}
+
+function updateSelectedAnnotationPosition(svgPoint) {
+  const annotation = interactionState.annotations[interactionState.draggingAnnotationIndex];
+  const model = interactionState.renderModel;
+  if (!annotation || !model || !interactionState.annotationDragOffset) {
+    return;
+  }
+
+  annotation.x = roundCoord(model.plotSpace.pxToX(svgPoint.x) - interactionState.annotationDragOffset.x);
+  annotation.y = roundCoord(model.plotSpace.pxToY(svgPoint.y) - interactionState.annotationDragOffset.y);
+  render();
+}
+
+function moveSelectedAnnotationBy(deltaX, deltaY) {
+  const annotation = interactionState.annotations[interactionState.selectedAnnotationIndex];
+  if (!annotation) {
+    return false;
+  }
+  annotation.x = roundCoord(annotation.x + deltaX);
+  annotation.y = roundCoord(annotation.y + deltaY);
+  render();
+  return true;
+}
+
+function removeSelectedAnnotation() {
+  const index = interactionState.selectedAnnotationIndex;
+  if (index < 0 || index >= interactionState.annotations.length) {
+    return false;
+  }
+  interactionState.annotations.splice(index, 1);
+  interactionState.selectedAnnotationIndex = -1;
+  render();
+  setStatus("Text removed.");
+  return true;
 }
 
 function clamp(value, min, max) {
@@ -549,21 +739,35 @@ function getNearestSegmentInsertion(svgPoint, points, plotSpace, hitRadiusPx = P
   return best;
 }
 
+function selectPoint(pointIndex, additive) {
+  if (!additive) {
+    interactionState.selectedPointIndices = new Set([pointIndex]);
+  } else if (interactionState.selectedPointIndices.has(pointIndex)) {
+    interactionState.selectedPointIndices.delete(pointIndex);
+  } else {
+    interactionState.selectedPointIndices.add(pointIndex);
+  }
+  interactionState.selectedArcIndex = -1;
+  interactionState.selectedPointIndex = interactionState.selectedPointIndices.size === 1
+    ? [...interactionState.selectedPointIndices][0]
+    : -1;
+}
+
 function setPlotInteractionClasses() {
   const plot = document.getElementById("plot");
   if (!plot) {
     return;
   }
 
-  plot.classList.toggle("edit-enabled", interactionState.canvasEditEnabled);
+  plot.classList.add("edit-enabled");
   plot.classList.toggle("dragging-point", interactionState.draggingPointIndex >= 0);
   plot.classList.toggle(
     "hover-point",
-    interactionState.canvasEditEnabled && interactionState.hoverPointIndex >= 0 && interactionState.draggingPointIndex < 0,
+    interactionState.hoverPointIndex >= 0 && interactionState.draggingPointIndex < 0,
   );
   plot.classList.toggle(
     "hover-segment",
-    interactionState.canvasEditEnabled && interactionState.hoverPointIndex < 0 && interactionState.hoverSegmentActive && interactionState.draggingPointIndex < 0,
+    interactionState.hoverPointIndex < 0 && interactionState.hoverSegmentActive && interactionState.draggingPointIndex < 0,
   );
 }
 
@@ -674,6 +878,7 @@ function addPointAtSvgCoordinate(svgPoint) {
   };
 
   const nextPoints = [...model.points, nextPoint];
+  interactionState.selectedPointIndices = new Set([nextPoints.length - 1]);
   interactionState.selectedPointIndex = nextPoints.length - 1;
   updatePointsInputAndRender(
     nextPoints,
@@ -699,6 +904,8 @@ function insertPointOnNearestSegment(segmentMatch) {
 
   const nextPoints = [...model.points];
   nextPoints.splice(segmentMatch.insertIndex, 0, nextPoint);
+  adjustGeometryIndices(segmentMatch.insertIndex, 1);
+  interactionState.selectedPointIndices = new Set([segmentMatch.insertIndex]);
   interactionState.selectedPointIndex = segmentMatch.insertIndex;
   updatePointsInputAndRender(
     nextPoints,
@@ -708,7 +915,24 @@ function insertPointOnNearestSegment(segmentMatch) {
 }
 
 function handlePlotPointerDown(event) {
-  if (!interactionState.canvasEditEnabled) {
+  const annotationIndex = getAnnotationIndexFromTarget(event.target);
+  if (Number.isInteger(annotationIndex) && annotationIndex >= 0 && annotationIndex < interactionState.annotations.length) {
+    interactionState.selectedAnnotationIndex = annotationIndex;
+    syncTextSizeControl();
+    event.preventDefault();
+    const plot = event.currentTarget;
+    const annotation = interactionState.annotations[annotationIndex];
+    const model = interactionState.renderModel;
+    const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+    interactionState.draggingAnnotationIndex = annotationIndex;
+    interactionState.annotationDragOffset = {
+      x: model.plotSpace.pxToX(svgPoint.x) - annotation.x,
+      y: model.plotSpace.pxToY(svgPoint.y) - annotation.y,
+    };
+    plot.setPointerCapture(event.pointerId);
+    plot.focus({ preventScroll: true });
+    render();
+    setStatus("Text selected. Drag or use arrow keys to move it.");
     return;
   }
   event.preventDefault();
@@ -729,10 +953,27 @@ function handlePlotPointerDown(event) {
   }
 
   const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+  const arcIndex = Number(event.target?.dataset?.arcIndex);
+  if (Number.isInteger(arcIndex) && arcIndex >= 0 && arcIndex < interactionState.angleArcs.length) {
+    interactionState.selectedArcIndex = arcIndex;
+    interactionState.selectedPointIndices.clear();
+    interactionState.selectedPointIndex = -1;
+    render();
+    setStatus("Angle arc selected. Press Delete or Backspace to remove it.");
+    return;
+  }
   const nearestPointIndex = getNearestPointIndex(svgPoint, model.points, model.plotSpace);
 
   if (nearestPointIndex >= 0) {
-    interactionState.selectedPointIndex = nearestPointIndex;
+    selectPoint(nearestPointIndex, event.ctrlKey || event.metaKey);
+    if (event.ctrlKey || event.metaKey) {
+      const createdArc = addAngleArcFromSelection();
+      render();
+      setStatus(createdArc
+        ? "Angle arc created from the three selected points."
+        : `${interactionState.selectedPointIndices.size} points selected.`);
+      return;
+    }
     interactionState.draggingPointIndex = nearestPointIndex;
     interactionState.dragPoints = model.points.map((point) => ({ ...point }));
     interactionState.dragStartText = document.getElementById("points-input").value;
@@ -754,9 +995,6 @@ function handlePlotPointerDown(event) {
 }
 
 function handlePlotPointerMove(event) {
-  if (!interactionState.canvasEditEnabled) {
-    return;
-  }
   event.preventDefault();
 
   const plot = event.currentTarget;
@@ -766,6 +1004,10 @@ function handlePlotPointerMove(event) {
   }
 
   const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+  if (interactionState.draggingAnnotationIndex >= 0) {
+    updateSelectedAnnotationPosition(svgPoint);
+    return;
+  }
   const nearestPointIndex = getNearestPointIndex(svgPoint, model.points, model.plotSpace);
   const nearestSegment = nearestPointIndex < 0
     ? getNearestSegmentInsertion(svgPoint, model.points, model.plotSpace)
@@ -801,6 +1043,16 @@ function handlePlotPointerMove(event) {
 }
 
 function handlePlotPointerUp(event) {
+  if (interactionState.draggingAnnotationIndex >= 0) {
+    const plot = event.currentTarget;
+    interactionState.draggingAnnotationIndex = -1;
+    interactionState.annotationDragOffset = null;
+    if (plot?.hasPointerCapture(event.pointerId)) {
+      plot.releasePointerCapture(event.pointerId);
+    }
+    setStatus("Text moved.");
+    return;
+  }
   if (interactionState.draggingPointIndex < 0) {
     return;
   }
@@ -831,7 +1083,7 @@ function handlePlotPointerUp(event) {
 }
 
 function handlePlotPointerLeave() {
-  if (!interactionState.canvasEditEnabled || interactionState.draggingPointIndex >= 0) {
+  if (interactionState.draggingPointIndex >= 0) {
     return;
   }
 
@@ -850,6 +1102,13 @@ function removeSelectedPoint() {
     return;
   }
 
+  const removedIndex = interactionState.selectedPointIndex;
+  interactionState.angleArcs = interactionState.angleArcs.filter((arc) => !arc.includes(removedIndex));
+  interactionState.segments = interactionState.segments.filter((segment) => !segment.includes(removedIndex));
+  adjustGeometryIndices(removedIndex + 1, -1);
+  interactionState.selectedPointIndices = deletion.nextSelectedIndex >= 0
+    ? new Set([deletion.nextSelectedIndex])
+    : new Set();
   interactionState.selectedPointIndex = deletion.nextSelectedIndex;
   updatePointsInputAndRender(
     deletion.nextPoints,
@@ -880,6 +1139,18 @@ function moveSelectedPointBy(deltaX, deltaY) {
     `Point ${selectedIndex + 1} moved to (${selectedPoint.x.toFixed(2)}, ${selectedPoint.y.toFixed(2)}).`,
     { recordHistory: true },
   );
+}
+
+function removeSelectedArc() {
+  const arcIndex = interactionState.selectedArcIndex;
+  if (arcIndex < 0 || arcIndex >= interactionState.angleArcs.length) {
+    return false;
+  }
+  interactionState.angleArcs.splice(arcIndex, 1);
+  interactionState.selectedArcIndex = -1;
+  render();
+  setStatus("Angle arc removed.");
+  return true;
 }
 
 function isTypingInInputLikeElement() {
@@ -939,13 +1210,19 @@ function handleGlobalKeyDown(event) {
     return;
   }
 
-  if (isDelete && interactionState.canvasEditEnabled) {
+  if (isDelete) {
     event.preventDefault();
+    if (removeSelectedAnnotation()) {
+      return;
+    }
+    if (removeSelectedArc()) {
+      return;
+    }
     removeSelectedPoint();
     return;
   }
 
-  if (isArrowKey && interactionState.canvasEditEnabled) {
+  if (isArrowKey) {
     event.preventDefault();
     const step = event.altKey
       ? KEYBOARD_NUDGE_FINE
@@ -953,6 +1230,18 @@ function handleGlobalKeyDown(event) {
         ? KEYBOARD_NUDGE_COARSE
         : KEYBOARD_NUDGE_DEFAULT;
 
+    if (event.key === "ArrowUp" && moveSelectedAnnotationBy(0, step)) {
+      return;
+    }
+    if (event.key === "ArrowDown" && moveSelectedAnnotationBy(0, -step)) {
+      return;
+    }
+    if (event.key === "ArrowLeft" && moveSelectedAnnotationBy(-step, 0)) {
+      return;
+    }
+    if (event.key === "ArrowRight" && moveSelectedAnnotationBy(step, 0)) {
+      return;
+    }
     if (event.key === "ArrowUp") {
       moveSelectedPointBy(0, step);
       return;
@@ -971,13 +1260,13 @@ function handleGlobalKeyDown(event) {
   }
 }
 
-function buildPlot(points, joins, centerText, showPoints, showGridlines, area, perimeter, angles, selectedPointIndex = -1, canvasEditEnabled = false) {
+function buildPlot(points, joins, showPoints, showGridlines, showLabels, showAngleArcs, showSegments, area, perimeter, selectedPointIndex = -1) {
   const colors = getThemeColors();
   const width = 800;
   const height = 500;
   const margin = 70;
   const plotSpace = createPlotSpace(points, joins, width, height, margin, {
-    expandForEditing: canvasEditEnabled,
+    expandForEditing: true,
     bounds: interactionState.viewportBounds ?? null,
   });
   const {
@@ -1010,15 +1299,17 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
     for (let step = 0; step <= 5; step += 1) {
       const x = margin + (step / 5) * (width - margin * 2);
       const y = margin + (step / 5) * (height - margin * 2);
-      parts.push(`<line x1="${x}" y1="${margin}" x2="${x}" y2="${height - margin}" stroke="${colors.plotGrid}" stroke-opacity="0.7" stroke-width="1" stroke-dasharray="3 3" shape-rendering="crispEdges" />`);
-      parts.push(`<line x1="${margin}" y1="${y}" x2="${width - margin}" y2="${y}" stroke="${colors.plotGrid}" stroke-opacity="0.7" stroke-width="1" stroke-dasharray="3 3" shape-rendering="crispEdges" />`);
+      parts.push(`<line x1="${x}" y1="${margin}" x2="${x}" y2="${height - margin}" stroke="${colors.plotGrid}" stroke-opacity="0.95" stroke-width="1.4" stroke-dasharray="4 3" shape-rendering="crispEdges" />`);
+      parts.push(`<line x1="${margin}" y1="${y}" x2="${width - margin}" y2="${y}" stroke="${colors.plotGrid}" stroke-opacity="0.95" stroke-width="1.4" stroke-dasharray="4 3" shape-rendering="crispEdges" />`);
     }
   }
 
   parts.push(`<line x1="${margin}" y1="${xAxisY}" x2="${width - margin}" y2="${xAxisY}" stroke="${colors.plotAxis}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke" shape-rendering="crispEdges" />`);
   parts.push(`<line x1="${yAxisX}" y1="${margin}" x2="${yAxisX}" y2="${height - margin}" stroke="${colors.plotAxis}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke" shape-rendering="crispEdges" />`);
-  parts.push(`<text x="${width / 2}" y="${xAxisLabelY}" text-anchor="middle" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">X Axis</text>`);
-  parts.push(`<text x="${yAxisX - 12}" y="${height / 2}" text-anchor="end" transform="rotate(-90 ${yAxisX - 12} ${height / 2})" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">Y Axis</text>`);
+  if (showLabels) {
+    parts.push(`<text x="${width / 2}" y="${xAxisLabelY}" text-anchor="middle" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">X Axis</text>`);
+    parts.push(`<text x="${yAxisX - 12}" y="${height / 2}" text-anchor="end" transform="rotate(-90 ${yAxisX - 12} ${height / 2})" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">Y Axis</text>`);
+  }
 
   for (let step = 0; step <= 5; step += 1) {
     const x = margin + (step / 5) * (width - margin * 2);
@@ -1026,7 +1317,9 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
     const tickDirection = xAxisY > height / 2 ? 8 : -8;
     const labelOffset = xAxisY > height / 2 ? 24 : -10;
     parts.push(`<line x1="${x}" y1="${xAxisY}" x2="${x}" y2="${xAxisY + tickDirection}" stroke="#374151" stroke-width="1" shape-rendering="crispEdges" />`);
-    parts.push(`<text x="${x}" y="${xAxisY + labelOffset}" text-anchor="middle" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+    if (showLabels) {
+      parts.push(`<text x="${x}" y="${xAxisY + labelOffset}" text-anchor="middle" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+    }
   }
 
   for (let step = 0; step <= 5; step += 1) {
@@ -1035,7 +1328,9 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
     const tickDirection = yAxisX > width / 2 ? -8 : 8;
     const labelX = yAxisX - 12;
     parts.push(`<line x1="${yAxisX}" y1="${y}" x2="${yAxisX + tickDirection}" y2="${y}" stroke="#374151" stroke-width="1" shape-rendering="crispEdges" />`);
-    parts.push(`<text x="${labelX}" y="${y + 3}" text-anchor="end" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+    if (showLabels) {
+      parts.push(`<text x="${labelX}" y="${y + 3}" text-anchor="end" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+    }
   }
 
   if (points.length > 0) {
@@ -1049,29 +1344,31 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
       if (point.y !== 0) {
         parts.push(`<line x1="${px}" y1="${yToPx(0)}" x2="${px}" y2="${py}" stroke="${colors.plotAux}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" />`);
       }
-      if (canvasEditEnabled && pointIndex === interactionState.hoverPointIndex && pointIndex !== selectedPointIndex) {
+      if (pointIndex === interactionState.hoverPointIndex && pointIndex !== selectedPointIndex) {
         parts.push(`<circle cx="${px}" cy="${py}" r="7" fill="none" stroke="${colors.plotJoinLabel}" stroke-width="1.8" stroke-dasharray="3 2" vector-effect="non-scaling-stroke" />`);
       }
-      if (canvasEditEnabled && pointIndex === selectedPointIndex) {
+      if (interactionState.selectedPointIndices.has(pointIndex)) {
         parts.push(`<circle cx="${px}" cy="${py}" r="10" fill="none" stroke="${colors.plotBg}" stroke-width="4" vector-effect="non-scaling-stroke" />`);
         parts.push(`<circle cx="${px}" cy="${py}" r="8" fill="none" stroke="${colors.plotAux}" stroke-width="2.4" vector-effect="non-scaling-stroke" />`);
       }
       if (showPoints) {
         parts.push(`<circle cx="${px}" cy="${py}" r="5" fill="${colors.plotPoint}" stroke="${colors.plotBg}" stroke-width="1.5" vector-effect="non-scaling-stroke" />`);
-      } else if (canvasEditEnabled && pointIndex === selectedPointIndex) {
+      } else if (interactionState.selectedPointIndices.has(pointIndex)) {
         parts.push(`<circle cx="${px}" cy="${py}" r="3.5" fill="${colors.plotAux}" vector-effect="non-scaling-stroke" />`);
       }
-      const pointLabelText = `${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`;
-      const label = getLabelPosition(
-        px,
-        py,
-        pointLabelText,
-        width,
-        height,
-        occupiedLabels,
-        { padding: 8, offset: 10, fontSize: 12 },
-      );
-      parts.push(`<text x="${label.x}" y="${label.y}" text-anchor="${label.anchor}" fill="${colors.plotText}" font-size="12" font-weight="600">${escapeHtml(`${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`)}</text>`);
+      if (showLabels) {
+        const pointLabelText = `${point.name} (${point.x.toFixed(2)}, ${point.y.toFixed(2)})`;
+        const label = getLabelPosition(
+          px,
+          py,
+          pointLabelText,
+          width,
+          height,
+          occupiedLabels,
+          { padding: 8, offset: 10, fontSize: 12 },
+        );
+        parts.push(`<text x="${label.x}" y="${label.y}" text-anchor="${label.anchor}" fill="${colors.plotText}" font-size="12" font-weight="600">${escapeHtml(pointLabelText)}</text>`);
+      }
     });
 
     for (let index = 0; index < points.length; index += 1) {
@@ -1086,16 +1383,19 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
       const sideLength = calculateDistance(start, end);
       const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
       const normalizedAngle = angle > 90 ? angle - 180 : angle < -90 ? angle + 180 : angle;
-      parts.push(`<text x="${midX}" y="${midY}" transform="rotate(${normalizedAngle}, ${midX}, ${midY})" fill="${colors.plotAux}" font-size="12" font-weight="700" paint-order="stroke" stroke="${colors.plotBg}" stroke-width="2">${sideLength.toFixed(2)} m</text>`);
+      if (showLabels) {
+        parts.push(`<text x="${midX}" y="${midY}" transform="rotate(${normalizedAngle}, ${midX}, ${midY})" fill="${colors.plotAux}" font-size="12" font-weight="700" paint-order="stroke" stroke="${colors.plotBg}" stroke-width="2">${sideLength.toFixed(2)} m</text>`);
+      }
     }
 
-    for (let index = 0; index < points.length; index += 1) {
-      const previous = points[(index - 1 + points.length) % points.length];
-      const vertex = points[index];
-      const next = points[(index + 1) % points.length];
-      const interiorAngle = angles[index];
+    if (showAngleArcs) interactionState.angleArcs.forEach((arc, arcIndex) => {
+      const [previousIndex, vertexIndex, nextIndex] = arc;
+      const previous = points[previousIndex];
+      const vertex = points[vertexIndex];
+      const next = points[nextIndex];
+      const interiorAngle = calculateAngleDegrees(previous, vertex, next);
       if (!Number.isFinite(interiorAngle)) {
-        continue;
+        return;
       }
 
       const vertexPx = { x: xToPx(vertex.x), y: yToPx(vertex.y) };
@@ -1107,33 +1407,54 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
       const arcRadius = Math.max(8, Math.min(14, shortestEdge * 0.2));
       const arcGeometry = getAngleArcGeometry(previousPx, vertexPx, nextPx, arcRadius, interiorAngle);
       if (!arcGeometry) {
-        continue;
+        return;
       }
 
-      parts.push(`<path d="M ${arcGeometry.arcStartX} ${arcGeometry.arcStartY} A ${arcRadius} ${arcRadius} 0 ${arcGeometry.largeArcFlag} ${arcGeometry.sweepFlag} ${arcGeometry.arcEndX} ${arcGeometry.arcEndY}" fill="none" stroke="${colors.plotAreaText}" stroke-width="1.8" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
+      const selectedArcStroke = arcIndex === interactionState.selectedArcIndex ? colors.plotAux : colors.plotAreaText;
+      const selectedArcWidth = arcIndex === interactionState.selectedArcIndex ? 3 : 1.8;
+      parts.push(`<path data-arc-index="${arcIndex}" d="M ${arcGeometry.arcStartX} ${arcGeometry.arcStartY} A ${arcRadius} ${arcRadius} 0 ${arcGeometry.largeArcFlag} ${arcGeometry.sweepFlag} ${arcGeometry.arcEndX} ${arcGeometry.arcEndY}" fill="none" stroke="${selectedArcStroke}" stroke-width="${selectedArcWidth}" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
       if (arcGeometry.isReflex) {
         const innerRadius = Math.max(5.5, arcRadius - 3);
         const innerStartX = vertexPx.x + innerRadius * Math.cos(Math.atan2(previousPx.y - vertexPx.y, previousPx.x - vertexPx.x));
         const innerStartY = vertexPx.y + innerRadius * Math.sin(Math.atan2(previousPx.y - vertexPx.y, previousPx.x - vertexPx.x));
         const innerEndX = vertexPx.x + innerRadius * Math.cos(Math.atan2(nextPx.y - vertexPx.y, nextPx.x - vertexPx.x));
         const innerEndY = vertexPx.y + innerRadius * Math.sin(Math.atan2(nextPx.y - vertexPx.y, nextPx.x - vertexPx.x));
-        parts.push(`<path d="M ${innerStartX} ${innerStartY} A ${innerRadius} ${innerRadius} 0 0 ${arcGeometry.sweepFlag} ${innerEndX} ${innerEndY}" fill="none" stroke="${colors.plotAreaText}" stroke-width="1.2" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
+        parts.push(`<path data-arc-index="${arcIndex}" d="M ${innerStartX} ${innerStartY} A ${innerRadius} ${innerRadius} 0 0 ${arcGeometry.sweepFlag} ${innerEndX} ${innerEndY}" fill="none" stroke="${selectedArcStroke}" stroke-width="1.2" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
       }
-      const angleLabelText = `${interiorAngle.toFixed(1)}°`;
-      const angleLabel = getLabelPosition(
-        arcGeometry.labelX,
-        arcGeometry.labelY,
-        angleLabelText,
-        width,
-        height,
-        occupiedLabels,
-        { padding: 8, offset: 4, fontSize: 11 },
-      );
-      parts.push(`<text x="${angleLabel.x}" y="${angleLabel.y}" text-anchor="${angleLabel.anchor}" fill="${colors.plotAreaText}" font-size="11" font-weight="700" paint-order="stroke" stroke="${colors.plotBg}" stroke-width="2">${angleLabelText}</text>`);
-    }
+      if (showLabels) {
+        const angleLabelText = `${interiorAngle.toFixed(1)}°`;
+        const angleLabel = getLabelPosition(
+          arcGeometry.labelX,
+          arcGeometry.labelY,
+          angleLabelText,
+          width,
+          height,
+          occupiedLabels,
+          { padding: 8, offset: 4, fontSize: 11 },
+        );
+        parts.push(`<text x="${angleLabel.x}" y="${angleLabel.y}" text-anchor="${angleLabel.anchor}" fill="${colors.plotAreaText}" font-size="11" font-weight="700" paint-order="stroke" stroke="${colors.plotBg}" stroke-width="2">${angleLabelText}</text>`);
+      }
+    });
   }
 
-  joins.forEach((join, index) => {
+  if (showSegments) interactionState.segments.forEach(([startIndex, endIndex]) => {
+    const start = points[startIndex];
+    const end = points[endIndex];
+    const x1 = xToPx(start.x);
+    const y1 = yToPx(start.y);
+    const x2 = xToPx(end.x);
+    const y2 = yToPx(end.y);
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+    const normalizedAngle = angle > 90 ? angle - 180 : angle < -90 ? angle + 180 : angle;
+    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${colors.plotJoin}" stroke-width="2.4" stroke-dasharray="6 4" stroke-linecap="round" vector-effect="non-scaling-stroke" pointer-events="none" />`);
+    if (showLabels) {
+      parts.push(`<text x="${midX}" y="${midY}" transform="rotate(${normalizedAngle}, ${midX}, ${midY})" fill="${colors.plotJoinLabel}" font-size="11" font-weight="700" paint-order="stroke" stroke="${colors.plotBg}" stroke-width="2">${calculateDistance(start, end).toFixed(2)} m</text>`);
+    }
+  });
+
+  if (showSegments) joins.forEach((join, index) => {
     const next = joins[index + 1];
     if (!next) {
       return;
@@ -1143,21 +1464,33 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
     const y1 = yToPx(join.y);
     const x2 = xToPx(next.x);
     const y2 = yToPx(next.y);
-    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${colors.plotJoin}" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round" vector-effect="non-scaling-stroke" />`);
+    parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${colors.plotJoin}" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round" vector-effect="non-scaling-stroke" pointer-events="none" />`);
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
     const joinLength = calculateDistance(join, next);
-    parts.push(`<text x="${midX}" y="${midY}" fill="${colors.plotJoinLabel}" font-size="11" font-weight="700">${joinLength.toFixed(2)} m</text>`);
+    if (showLabels) {
+      parts.push(`<text x="${midX}" y="${midY}" fill="${colors.plotJoinLabel}" font-size="11" font-weight="700">${joinLength.toFixed(2)} m</text>`);
+    }
   });
 
   const areaText = `Area: ${area.hectares} ha • ${area.ares} a • ${area.remSqm.toFixed(2)} sqm • ${area.acres.toFixed(3)} ac • ${area.cents.toFixed(2)} cents • ${area.sqft.toFixed(2)} sqft`;
-  parts.push(`<text x="${width - 24}" y="28" text-anchor="end" fill="${colors.plotAreaText}" font-size="13" font-weight="700">${escapeHtml(areaText)}</text>`);
-  if (perimeter > 0) {
+  if (showLabels) {
+    parts.push(`<text x="${width - 24}" y="28" text-anchor="end" fill="${colors.plotAreaText}" font-size="13" font-weight="700">${escapeHtml(areaText)}</text>`);
+  }
+  if (showLabels && perimeter > 0) {
     parts.push(`<text x="${width - 24}" y="48" text-anchor="end" fill="${colors.plotAreaText}" font-size="12" font-weight="700">${escapeHtml(`Perimeter: ${perimeter.toFixed(2)} m`)}</text>`);
   }
 
-  if (centerText.trim()) {
-    parts.push(`<text x="400" y="250" text-anchor="middle" fill="${colors.plotCenterText}" fill-opacity="${colors.plotCenterOpacity}" font-size="32" font-weight="700" opacity="0.7" letter-spacing="0.12em">${escapeHtml(centerText.trim())}</text>`);
+  if (showLabels) {
+    interactionState.annotations.forEach((annotation) => {
+      const annotationIndex = interactionState.annotations.indexOf(annotation);
+      const selected = annotationIndex === interactionState.selectedAnnotationIndex;
+      const fontSize = clamp(Number(annotation.fontSize) || 16, 10, 48);
+      const x = xToPx(annotation.x);
+      const y = yToPx(annotation.y);
+      const width = Math.max(90, annotation.text.length * fontSize * 0.7 + 24);
+      parts.push(`<foreignObject data-annotation-index="${annotationIndex}" x="${x - width / 2}" y="${y - fontSize}" width="${width}" height="${fontSize * 2}" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" data-annotation-editor="${annotationIndex}" contenteditable="true" spellcheck="false" style="display:inline-block;min-width:100%;color:${colors.plotCenterText};font:${fontSize}px Inter,Segoe UI,sans-serif;font-weight:700;text-align:center;white-space:nowrap;outline:${selected ? `2px solid ${colors.plotAux}` : "none"};border-radius:3px;cursor:move;paint-order:stroke;">${escapeHtml(annotation.text)}</div></foreignObject>`);
+    });
   }
 
   return parts.join("");
@@ -1166,9 +1499,11 @@ function buildPlot(points, joins, centerText, showPoints, showGridlines, area, p
 function render() {
   const pointsInput = document.getElementById("points-input");
   const joinsInput = document.getElementById("joins-input");
-  const centerText = document.getElementById("center-text");
   const showPoints = document.getElementById("show-points");
   const showGridlines = document.getElementById("show-gridlines");
+  const showLabels = document.getElementById("show-labels");
+  const showAngleArcs = document.getElementById("show-angle-arcs");
+  const showSegments = document.getElementById("show-segments");
   const warnings = document.getElementById("warnings");
   const plot = document.getElementById("plot");
 
@@ -1177,10 +1512,9 @@ function render() {
 
   const area = calculateArea(points);
   const perimeter = calculatePerimeter(points);
-  const interiorAngles = calculateInteriorAngles(points);
   const intersections = findSelfIntersections(points);
 
-  if (interactionState.canvasEditEnabled && !interactionState.viewportBounds) {
+  if (!interactionState.viewportBounds) {
     interactionState.viewportBounds = getViewportBounds(points, extraPoints);
   }
 
@@ -1188,12 +1522,13 @@ function render() {
     points: points.map((point) => ({ ...point })),
     joins: extraPoints.map((point) => ({ ...point })),
     plotSpace: createPlotSpace(points, extraPoints, 800, 500, 70, {
-      expandForEditing: interactionState.canvasEditEnabled,
+      expandForEditing: true,
       bounds: interactionState.viewportBounds ?? null,
     }),
     intersections,
   };
   interactionState.selectedPointIndex = clamp(interactionState.selectedPointIndex, -1, points.length - 1);
+  normalizeGeometrySelections(points.length);
   interactionState.hoverPointIndex = clamp(interactionState.hoverPointIndex, -1, points.length - 1);
   if (interactionState.hoverPointIndex >= 0) {
     interactionState.hoverSegmentActive = false;
@@ -1211,14 +1546,14 @@ function render() {
   plot.innerHTML = buildPlot(
     points,
     extraPoints,
-    centerText.value,
     showPoints.checked,
     showGridlines.checked,
+    showLabels.checked,
+    showAngleArcs.checked,
+    showSegments.checked,
     area,
     perimeter,
-    interiorAngles,
     interactionState.selectedPointIndex,
-    interactionState.canvasEditEnabled,
   );
   setPlotInteractionClasses();
   updateHistoryButtons();
@@ -1226,7 +1561,6 @@ function render() {
 
 function exportInputs() {
   const plot = document.getElementById("plot");
-  const centerText = document.getElementById("center-text");
   if (!plot) {
     return;
   }
@@ -1234,7 +1568,7 @@ function exportInputs() {
   const viewBox = plot.getAttribute("viewBox") || "0 0 800 500";
   const width = plot.getAttribute("width") || "800";
   const height = plot.getAttribute("height") || "500";
-  const fileName = `${getDownloadBaseName(centerText.value, "fmb-plot")}.svg`;
+  const fileName = `${getDownloadBaseName(interactionState.annotations[0]?.text, "fmb-plot")}.svg`;
   const config = getCurrentConfig();
   downloadSvgFile(fileName, config, plot.innerHTML, viewBox, width, height);
   setStatus("Plot exported as SVG with embedded data.");
@@ -1242,7 +1576,6 @@ function exportInputs() {
 
 function saveGraph() {
   const plot = document.getElementById("plot");
-  const centerText = document.getElementById("center-text");
   if (!plot) {
     return;
   }
@@ -1250,7 +1583,7 @@ function saveGraph() {
   const viewBox = plot.getAttribute("viewBox") || "0 0 800 500";
   const width = plot.getAttribute("width") || "800";
   const height = plot.getAttribute("height") || "500";
-  const fileName = `${getDownloadBaseName(centerText.value, "fmb-plot")}.svg`;
+  const fileName = `${getDownloadBaseName(interactionState.annotations[0]?.text, "fmb-plot")}.svg`;
   const config = getCurrentConfig();
   downloadSvgFile(fileName, config, plot.innerHTML, viewBox, width, height);
   setStatus("Graph saved as SVG.");
@@ -1286,10 +1619,11 @@ function importInputs(event) {
 
       const pointsInput = document.getElementById("points-input");
       const joinsInput = document.getElementById("joins-input");
-      const centerText = document.getElementById("center-text");
       const showPoints = document.getElementById("show-points");
       const showGridlines = document.getElementById("show-gridlines");
-      const canvasEditEnabled = document.getElementById("canvas-edit-enabled");
+      const showLabels = document.getElementById("show-labels");
+      const showAngleArcs = document.getElementById("show-angle-arcs");
+      const showSegments = document.getElementById("show-segments");
 
       if (typeof data.points === "string") {
         pointsInput.value = data.points;
@@ -1297,21 +1631,36 @@ function importInputs(event) {
       if (typeof data.joins === "string") {
         joinsInput.value = data.joins;
       }
-      if (typeof data.centerText === "string") {
-        centerText.value = data.centerText;
-      }
       if (typeof data.showPoints === "boolean") {
         showPoints.checked = data.showPoints;
       }
       if (typeof data.showGridlines === "boolean") {
         showGridlines.checked = data.showGridlines;
       }
-      if (typeof data.canvasEditEnabled === "boolean") {
-        canvasEditEnabled.checked = data.canvasEditEnabled;
-        interactionState.canvasEditEnabled = data.canvasEditEnabled;
+      if (typeof data.showLabels === "boolean") {
+        showLabels.checked = data.showLabels;
       }
+      if (typeof data.showAngleArcs === "boolean") {
+        showAngleArcs.checked = data.showAngleArcs;
+      }
+      if (typeof data.showSegments === "boolean") {
+        showSegments.checked = data.showSegments;
+      }
+      if (Array.isArray(data.angleArcs)) {
+        interactionState.angleArcs = data.angleArcs;
+      }
+      if (Array.isArray(data.segments)) {
+        interactionState.segments = data.segments;
+      }
+      if (Array.isArray(data.annotations)) {
+        interactionState.annotations = data.annotations.filter((annotation) => {
+          return annotation && typeof annotation.text === "string" && Number.isFinite(annotation.x) && Number.isFinite(annotation.y);
+        }).map((annotation) => ({ ...annotation, fontSize: clamp(Number(annotation.fontSize) || 16, 10, 48) }));
+      }
+      applyColorSettings(data.colors);
 
       render();
+      syncTextSizeControl();
       setStatus(`Imported ${file.name}.`);
     } catch {
       setStatus("The selected file could not be imported.");
@@ -1380,8 +1729,16 @@ function handlePlotWheel(event) {
   render();
 }
 
-function handlePlotDoubleClick() {
-  if (interactionState.viewportBounds && !interactionState.canvasEditEnabled) {
+function handlePlotDoubleClick(event) {
+  const annotationIndex = getAnnotationIndexFromTarget(event.target);
+  if (Number.isInteger(annotationIndex) && annotationIndex >= 0 && annotationIndex < interactionState.annotations.length) {
+    event.preventDefault();
+    interactionState.selectedAnnotationIndex = annotationIndex;
+    document.querySelector(`[data-annotation-editor="${annotationIndex}"]`)?.focus();
+    setStatus("Editing text on the plot.");
+    return;
+  }
+  if (interactionState.viewportBounds) {
     interactionState.viewportBounds = null;
     render();
     setStatus("Zoom reset.");
@@ -1391,10 +1748,16 @@ function handlePlotDoubleClick() {
 function initialize() {
   const pointsInput = document.getElementById("points-input");
   const joinsInput = document.getElementById("joins-input");
-  const centerText = document.getElementById("center-text");
   const showPoints = document.getElementById("show-points");
   const showGridlines = document.getElementById("show-gridlines");
-  const canvasEditEnabled = document.getElementById("canvas-edit-enabled");
+  const showLabels = document.getElementById("show-labels");
+  const showAngleArcs = document.getElementById("show-angle-arcs");
+  const showSegments = document.getElementById("show-segments");
+  const addTextBtn = document.getElementById("add-text-btn");
+  const textSize = document.getElementById("text-size");
+  const textSizeValue = document.getElementById("text-size-value");
+  const createSegmentBtn = document.getElementById("create-segment-btn");
+  const resetColorsBtn = document.getElementById("reset-colors-btn");
   const exportBtn = document.getElementById("export-btn");
   const importBtn = document.getElementById("import-btn");
   const saveGraphBtn = document.getElementById("save-graph-btn");
@@ -1410,15 +1773,16 @@ function initialize() {
 
   pointsInput.value = defaultPoints;
   joinsInput.value = defaultJoins;
-  centerText.value = "";
   showPoints.checked = true;
   showGridlines.checked = true;
-  canvasEditEnabled.checked = false;
-  interactionState.canvasEditEnabled = false;
+  showLabels.checked = true;
+  showAngleArcs.checked = true;
+  showSegments.checked = true;
+  resetColorSettings();
 
-  [pointsInput, joinsInput, centerText].forEach((element) => {
+  [pointsInput, joinsInput].forEach((element) => {
     element.addEventListener("input", () => {
-      if (!interactionState.canvasEditEnabled && (element === pointsInput || element === joinsInput)) {
+      if (element === pointsInput || element === joinsInput) {
         interactionState.viewportBounds = null;
       }
       if (element === pointsInput) {
@@ -1429,38 +1793,29 @@ function initialize() {
   });
   showPoints.addEventListener("change", render);
   showGridlines.addEventListener("change", render);
-  canvasEditEnabled.addEventListener("change", () => {
-    interactionState.canvasEditEnabled = canvasEditEnabled.checked;
-    if (interactionState.canvasEditEnabled) {
-      if (!interactionState.viewportBounds) {
-        if (interactionState.renderModel?.plotSpace) {
-          const currentSpace = interactionState.renderModel.plotSpace;
-          interactionState.viewportBounds = {
-            minX: currentSpace.minX,
-            maxX: currentSpace.maxX,
-            minY: currentSpace.minY,
-            maxY: currentSpace.maxY,
-          };
-        } else {
-          const { result: points } = parseCoordinateText(pointsInput.value, "Point");
-          const { result: extraPoints } = parseCoordinateText(joinsInput.value, "Join");
-          interactionState.viewportBounds = getViewportBounds(points, extraPoints);
-        }
-      }
-    } else {
-      interactionState.selectedPointIndex = -1;
-      interactionState.hoverPointIndex = -1;
-      interactionState.hoverSegmentActive = false;
-      interactionState.draggingPointIndex = -1;
-      interactionState.dragPoints = null;
-      interactionState.dragStartText = "";
-    }
-    setPlotInteractionClasses();
-    render();
-    setStatus(interactionState.canvasEditEnabled
-      ? "Canvas edit enabled: click to add points, drag points to move them."
-      : "Canvas edit disabled.");
+  [showLabels, showAngleArcs, showSegments].forEach((element) => element.addEventListener("change", render));
+  colorSettings.forEach(([inputId, property]) => {
+    document.getElementById(inputId).addEventListener("input", (event) => {
+      document.documentElement.style.setProperty(property, event.target.value);
+      render();
+    });
   });
+  resetColorsBtn.addEventListener("click", () => {
+    resetColorSettings();
+    render();
+  });
+  addTextBtn.addEventListener("click", addTextAnnotation);
+  textSize.addEventListener("input", () => {
+    const size = Number(textSize.value);
+    textSizeValue.value = `${size} px`;
+    textSizeValue.textContent = `${size} px`;
+    const annotation = interactionState.annotations[interactionState.selectedAnnotationIndex];
+    if (annotation) {
+      annotation.fontSize = size;
+      render();
+    }
+  });
+  createSegmentBtn.addEventListener("click", addSegmentFromSelection);
   exportBtn.addEventListener("click", exportInputs);
   importBtn.addEventListener("click", () => importFile.click());
   saveGraphBtn.addEventListener("click", saveGraph);
@@ -1472,6 +1827,18 @@ function initialize() {
   plot.addEventListener("pointerup", handlePlotPointerUp);
   plot.addEventListener("pointercancel", handlePlotPointerUp);
   plot.addEventListener("pointerleave", handlePlotPointerLeave);
+  plot.addEventListener("input", (event) => {
+    const annotationIndex = getAnnotationIndexFromTarget(event.target);
+    const annotation = interactionState.annotations[annotationIndex];
+    if (annotation) {
+      annotation.text = event.target.textContent.trim() || "Text";
+    }
+  });
+  plot.addEventListener("focusout", (event) => {
+    if (getAnnotationIndexFromTarget(event.target) >= 0) {
+      render();
+    }
+  });
   plot.addEventListener("wheel", handlePlotWheel, { passive: false });
   plot.addEventListener("dblclick", handlePlotDoubleClick);
   document.addEventListener("keydown", handleGlobalKeyDown, true);
