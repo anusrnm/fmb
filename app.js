@@ -1,4 +1,4 @@
-const VERSION = "2.2.1";
+const VERSION = "2.3.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -63,7 +63,9 @@ const ui = {
   graph: document.getElementById("graph"),
   status: document.getElementById("status"),
   versionBadge: document.getElementById("version-badge"),
-  modeButtons: Array.from(document.querySelectorAll(".tool-btn")),
+  modeButtons: Array.from(document.querySelectorAll(".tool-btn[data-mode]")),
+  modeSelects: Array.from(document.querySelectorAll(".tool-select")),
+  modeSelectGroups: Array.from(document.querySelectorAll(".tool-select-wrap")),
   toolMenu: document.getElementById("tool-menu"),
   mobileMenuToggle: document.getElementById("mobile-menu-toggle"),
   undoBtn: document.getElementById("undo-btn"),
@@ -611,13 +613,13 @@ function addPolygon(pointIds) {
   return polygon;
 }
 
-function addText(world, content) {
+function addText(world, content, size = 16) {
   state.texts.push({
     id: createId(),
     x: round2(world.x),
     y: round2(world.y),
     content: content || "Text",
-    size: 16,
+    size,
   });
 }
 
@@ -1066,6 +1068,21 @@ function setMode(mode) {
 
   for (const button of ui.modeButtons) {
     button.classList.toggle("active", button.dataset.mode === mode);
+  }
+
+  for (const group of ui.modeSelectGroups) {
+    const values = (group.dataset.groupModes || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    group.classList.toggle("active", values.includes(mode));
+  }
+
+  for (const select of ui.modeSelects) {
+    const hasMode = Array.from(select.options).some((option) => option.value === mode);
+    if (hasMode) {
+      select.value = mode;
+    }
   }
 
   ui.graph.classList.remove(...MODES.map((entry) => `mode-${entry}`));
@@ -2341,6 +2358,24 @@ function handleKeyDown(event) {
     return;
   }
 
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === "<" || event.key === ">")) {
+    if (state.selection.texts.size === 0) {
+      return;
+    }
+    event.preventDefault();
+    const delta = event.key === ">" ? 2 : -2;
+    for (const textId of state.selection.texts) {
+      const text = getTextById(textId);
+      if (text) {
+        text.size = clamp(text.size + delta, 10, 80);
+      }
+    }
+    pushHistory();
+    render();
+    setStatus(`Text size adjusted.`);
+    return;
+  }
+
   const modeShortcuts = {
     "1": "select",
     "2": "box-select",
@@ -2403,6 +2438,12 @@ function handleDoubleClick(event) {
 function wireEvents() {
   for (const button of ui.modeButtons) {
     button.addEventListener("click", () => setMode(button.dataset.mode || "select"));
+  }
+
+  for (const select of ui.modeSelects) {
+    select.addEventListener("change", () => {
+      setMode(select.value || "select");
+    });
   }
 
   ui.mobileMenuToggle.addEventListener("click", () => {
@@ -2493,6 +2534,26 @@ function wireEvents() {
   globalThis.addEventListener("keydown", handleKeyDown);
   globalThis.addEventListener("resize", render);
 
+  let _printStyle = null;
+  globalThis.addEventListener("beforeprint", () => {
+    const rect = ui.graph.getBoundingClientRect();
+    // A4 at 96 dpi: 794 × 1122 px (portrait) or 1122 × 794 px (landscape)
+    const landscape = rect.width >= rect.height;
+    const w = landscape ? 1122 : 794;
+    const h = landscape ? 794 : 1122;
+    ui.graph.setAttribute("width", w);
+    ui.graph.setAttribute("height", h);
+    _printStyle = document.createElement("style");
+    _printStyle.textContent = `@page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 0; }`;
+    document.head.appendChild(_printStyle);
+  });
+  globalThis.addEventListener("afterprint", () => {
+    ui.graph.removeAttribute("width");
+    ui.graph.removeAttribute("height");
+    _printStyle?.remove();
+    _printStyle = null;
+  });
+
   ui.inlineTextEditor.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -2518,7 +2579,7 @@ function bootstrap() {
   setMode("select");
   pushHistory();
   render();
-  setStatus("Ready. Right click the graph for coordinate tools. Shortcuts: 1-9 tools, Ctrl+Z, Ctrl+Y.");
+  setStatus("Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y.");
 }
 
 bootstrap();

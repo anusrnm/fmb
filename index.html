@@ -27,34 +27,28 @@
         </div>
 
         <nav id="tool-menu" class="tool-menu" aria-label="Drawing tools">
-          <button class="tool-btn active" data-mode="select" type="button" title="Select">
-            <span class="icon">↖</span>
-            <span class="label">Select</span>
-          </button>
-          <button class="tool-btn" data-mode="box-select" type="button" title="Box Select">
-            <span class="icon">▭</span>
-            <span class="label">Box</span>
-          </button>
-          <button class="tool-btn" data-mode="point" type="button" title="Point">
-            <span class="icon">●</span>
-            <span class="label">Point</span>
-          </button>
-          <button class="tool-btn" data-mode="midpoint" type="button" title="Mid Point">
-            <span class="icon">◎</span>
-            <span class="label">Mid</span>
-          </button>
-          <button class="tool-btn" data-mode="segment" type="button" title="Segment">
-            <span class="icon">／</span>
-            <span class="label">Segment</span>
-          </button>
-          <button class="tool-btn" data-mode="parallel" type="button" title="Parallel">
-            <span class="icon">∥</span>
-            <span class="label">Parallel</span>
-          </button>
-          <button class="tool-btn" data-mode="perpendicular" type="button" title="Perpendicular">
-            <span class="icon">⟂</span>
-            <span class="label">Perp</span>
-          </button>
+          <div class="tool-select-wrap active" data-group-modes="select,box-select" title="Select tools">
+            <span class="icon" aria-hidden="true">↖▭</span>
+            <select class="tool-select" data-group="select" aria-label="Select tools">
+              <option value="select" selected>Select</option>
+              <option value="box-select">Box</option>
+            </select>
+          </div>
+          <div class="tool-select-wrap" data-group-modes="point,midpoint" title="Point tools">
+            <span class="icon" aria-hidden="true">●◎</span>
+            <select class="tool-select" data-group="point" aria-label="Point tools">
+              <option value="point">Point</option>
+              <option value="midpoint">Mid</option>
+            </select>
+          </div>
+          <div class="tool-select-wrap" data-group-modes="segment,parallel,perpendicular" title="Line tools">
+            <span class="icon" aria-hidden="true">／∥⟂</span>
+            <select class="tool-select" data-group="line" aria-label="Line tools">
+              <option value="segment">Segment</option>
+              <option value="parallel">Parallel</option>
+              <option value="perpendicular">Perp</option>
+            </select>
+          </div>
           <button class="tool-btn" data-mode="polygon" type="button" title="Polygon">
             <span class="icon">⬠</span>
             <span class="label">Polygon</span>

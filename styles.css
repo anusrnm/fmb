@@ -177,6 +177,50 @@ body {
   border-color: rgba(15, 118, 110, 0.14);
 }
 
+.tool-select-wrap {
+  min-width: 94px;
+  height: 54px;
+  padding: 6px 8px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  background: var(--control-bg);
+}
+
+.tool-select-wrap .icon {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.88rem;
+  line-height: 1;
+  color: var(--control-fg);
+  letter-spacing: 0.02em;
+}
+
+.tool-select {
+  width: 100%;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--control-fg);
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  height: 23px;
+  padding: 0 4px;
+}
+
+:root[data-theme="dark"] .tool-select {
+  background: rgba(20, 33, 45, 0.92);
+}
+
+.tool-select:focus {
+  outline: 2px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 1px;
+}
+
 .tool-btn .icon,
 .icon-btn .icon {
   font-family: "IBM Plex Mono", monospace;
@@ -203,6 +247,21 @@ body {
 .tool-btn.active {
   background: linear-gradient(145deg, #0f766e, #12948b);
   border-color: transparent;
+}
+
+.tool-select-wrap.active {
+  background: linear-gradient(145deg, #0f766e, #12948b);
+  border-color: transparent;
+}
+
+.tool-select-wrap.active .icon {
+  color: #f5fffe;
+}
+
+.tool-select-wrap.active .tool-select {
+  border-color: rgba(255, 255, 255, 0.38);
+  color: #f5fffe;
+  background: rgba(17, 94, 89, 0.45);
 }
 
 .tool-btn.active .icon,
@@ -424,6 +483,53 @@ svg.mode-box-select {
   display: none;
 }
 
+@media print {
+  @page {
+    size: auto;
+    margin: 0;
+  }
+
+  body {
+    overflow: visible;
+    background: none;
+  }
+
+  .topbar,
+  .status-pill,
+  .settings-panel,
+  .context-menu,
+  .inline-text-editor {
+    display: none !important;
+  }
+
+  .app-shell {
+    display: block;
+    height: auto;
+    padding: 0;
+  }
+
+  .workspace {
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .graph-panel {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    border: none;
+    animation: none;
+  }
+
+  svg {
+    width: 100%;
+    height: 100%;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+
 @media (max-width: 920px) {
   .app-shell {
     padding: 8px;
@@ -453,6 +559,21 @@ svg.mode-box-select {
     opacity: 0;
     pointer-events: none;
     transition: opacity 180ms ease, transform 180ms ease;
+  }
+
+  .tool-select-wrap {
+    min-width: 86px;
+    height: 50px;
+    padding: 5px 7px;
+  }
+
+  .tool-select-wrap .icon {
+    font-size: 0.78rem;
+  }
+
+  .tool-select {
+    font-size: 0.67rem;
+    height: 21px;
   }
 
   .tool-menu.open {
@@ -485,5 +606,60 @@ svg.mode-box-select {
 
   .graph-panel {
     border-radius: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 6px;
+    padding: 8px;
+    overflow: hidden;
+  }
+
+  .tool-menu {
+    top: 56px;
+  }
+
+  .topbar-right {
+    max-width: 46vw;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: flex-start;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .topbar-right::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .topbar-right::-webkit-scrollbar-thumb {
+    background: rgba(15, 118, 110, 0.24);
+    border-radius: 999px;
+  }
+
+  .icon-btn {
+    min-width: 34px;
+    height: 32px;
+    padding: 4px 5px;
+  }
+
+  .icon-btn .icon {
+    font-size: 0.68rem;
+  }
+}
+
+@media (max-width: 440px) {
+  .brand-wrap {
+    gap: 6px;
+  }
+
+  .brand-wrap h1 {
+    font-size: 0.9rem;
+  }
+
+  .version-badge {
+    display: none;
   }
 }
