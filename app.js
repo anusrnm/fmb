@@ -1,6 +1,7 @@
-const VERSION = "2.1.0";
+const VERSION = "2.2.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
+const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
 
 const MODES = [
   "select",
@@ -11,6 +12,7 @@ const MODES = [
   "parallel",
   "perpendicular",
   "polygon",
+  "angle",
   "text",
 ];
 
@@ -21,6 +23,7 @@ const state = {
   segments: [],
   polygons: [],
   texts: [],
+  angleAnnotations: [],
   nextId: 1,
   scale: 32,
   panX: 0,
@@ -42,6 +45,18 @@ const state = {
   },
   history: [],
   historyIndex: -1,
+  display: {
+    showPoints: true,
+    showLabels: true,
+    showSegments: true,
+    showSegmentLengths: true,
+    showText: true,
+    showPolygons: true,
+    showAngles: true,
+    showMajorGrid: true,
+    showMinorGrid: true,
+    showGridValues: true,
+  },
 };
 
 const ui = {
@@ -65,6 +80,16 @@ const ui = {
   settingsPanel: document.getElementById("settings-panel"),
   closeSettingsBtn: document.getElementById("close-settings-btn"),
   snapToggle: document.getElementById("snap-toggle"),
+  showPointsToggle: document.getElementById("show-points-toggle"),
+  showLabelsToggle: document.getElementById("show-labels-toggle"),
+  showSegmentsToggle: document.getElementById("show-segments-toggle"),
+  showSegmentLengthsToggle: document.getElementById("show-segment-lengths-toggle"),
+  showTextToggle: document.getElementById("show-text-toggle"),
+  showPolygonsToggle: document.getElementById("show-polygons-toggle"),
+  showAnglesToggle: document.getElementById("show-angles-toggle"),
+  showMajorGridToggle: document.getElementById("show-major-grid-toggle"),
+  showMinorGridToggle: document.getElementById("show-minor-grid-toggle"),
+  showGridValuesToggle: document.getElementById("show-grid-values-toggle"),
   contextMenu: document.getElementById("context-menu"),
   viewPointsBtn: document.getElementById("view-points-btn"),
   joinPointsBtn: document.getElementById("join-points-btn"),
@@ -80,6 +105,101 @@ function clamp(value, min, max) {
 
 function round2(value) {
   return Math.round(value * 100) / 100;
+}
+
+function round3(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function getCssVar(name, fallback) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return raw || fallback;
+}
+
+function distanceWorld(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function areaConversions(areaSqm) {
+  const acres = areaSqm / 4046.8564224;
+  return {
+    hectares: areaSqm / 10000,
+    ares: areaSqm / 100,
+    sqm: areaSqm,
+    acres,
+    cents: acres * 100,
+    sqft: areaSqm * 10.76391041671,
+  };
+}
+
+function polygonPerimeter(pointIds) {
+  if (pointIds.length < 2) {
+    return 0;
+  }
+  let perimeter = 0;
+  for (let index = 0; index < pointIds.length; index += 1) {
+    const next = (index + 1) % pointIds.length;
+    const a = getPointById(pointIds[index]);
+    const b = getPointById(pointIds[next]);
+    if (!a || !b) {
+      continue;
+    }
+    perimeter += distanceWorld(a, b);
+  }
+  return perimeter;
+}
+
+function saveDisplaySettings() {
+  localStorage.setItem(
+    DISPLAY_SETTINGS_STORAGE_KEY,
+    JSON.stringify({
+      ...state.display,
+      snapToPoints: state.snapToPoints,
+    })
+  );
+}
+
+function loadDisplaySettings() {
+  try {
+    const raw = localStorage.getItem(DISPLAY_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    for (const key of Object.keys(state.display)) {
+      if (typeof parsed[key] === "boolean") {
+        state.display[key] = parsed[key];
+      }
+    }
+    if (typeof parsed.snapToPoints === "boolean") {
+      state.snapToPoints = parsed.snapToPoints;
+    }
+  } catch {
+    // Ignore corrupt local values and keep defaults.
+  }
+}
+
+function syncDisplayControlsToState() {
+  ui.snapToggle.checked = state.snapToPoints;
+  ui.showPointsToggle.checked = state.display.showPoints;
+  ui.showLabelsToggle.checked = state.display.showLabels;
+  ui.showSegmentsToggle.checked = state.display.showSegments;
+  ui.showSegmentLengthsToggle.checked = state.display.showSegmentLengths;
+  ui.showTextToggle.checked = state.display.showText;
+  ui.showPolygonsToggle.checked = state.display.showPolygons;
+  ui.showAnglesToggle.checked = state.display.showAngles;
+  ui.showMajorGridToggle.checked = state.display.showMajorGrid;
+  ui.showMinorGridToggle.checked = state.display.showMinorGrid;
+  ui.showGridValuesToggle.checked = state.display.showGridValues;
+}
+
+function updateDisplaySetting(key, value) {
+  if (!(key in state.display)) {
+    return;
+  }
+  state.display[key] = Boolean(value);
+  saveDisplaySettings();
+  render();
 }
 
 function createId() {
@@ -184,6 +304,7 @@ function serializeCoreState() {
     segments: state.segments,
     polygons: state.polygons,
     texts: state.texts,
+    angleAnnotations: state.angleAnnotations,
   };
 }
 
@@ -221,6 +342,14 @@ function applyCoreState(serialized) {
         y: Number(text.y),
         content: String(text.content || "Text"),
         size: clamp(Number(text.size) || 14, 10, 80),
+      }))
+    : [];
+  state.angleAnnotations = Array.isArray(serialized.angleAnnotations)
+    ? serialized.angleAnnotations.map((item) => ({
+        id: Number(item.id),
+        vertexId: Number(item.vertexId),
+        aId: Number(item.aId),
+        bId: Number(item.bId),
       }))
     : [];
 
@@ -305,9 +434,13 @@ function openInlineTextEditor(screen, options = {}) {
     world,
   };
 
+  const rect = getRect();
+  const clampedX = clamp(screen.x, 16, rect.width - 16);
+  const clampedY = clamp(screen.y, 22, rect.height - 8);
+
   ui.inlineTextEditor.value = initialValue;
-  ui.inlineTextEditor.style.left = `${screen.x}px`;
-  ui.inlineTextEditor.style.top = `${screen.y}px`;
+  ui.inlineTextEditor.style.left = `${clampedX}px`;
+  ui.inlineTextEditor.style.top = `${clampedY}px`;
   ui.inlineTextEditor.hidden = false;
   ui.inlineTextEditor.focus();
   ui.inlineTextEditor.select();
@@ -481,6 +614,10 @@ function normalizeGeometry() {
       pointIds: polygon.pointIds.filter((pointId) => pointIds.has(pointId)),
     }))
     .filter((polygon) => polygon.pointIds.length >= 3);
+
+  state.angleAnnotations = state.angleAnnotations.filter((item) => {
+    return pointIds.has(item.vertexId) && pointIds.has(item.aId) && pointIds.has(item.bId);
+  });
 
   state.selection.points = new Set([...state.selection.points].filter((id) => pointIds.has(id)));
   const segmentIds = new Set(state.segments.map((segment) => segment.id));
@@ -726,6 +863,153 @@ function hitTestText(screen) {
   return null;
 }
 
+function pointConnections() {
+  const map = new Map();
+
+  function addNeighbor(aId, bId) {
+    if (!map.has(aId)) {
+      map.set(aId, new Set());
+    }
+    map.get(aId).add(bId);
+  }
+
+  for (const segment of state.segments) {
+    addNeighbor(segment.a, segment.b);
+    addNeighbor(segment.b, segment.a);
+  }
+
+  for (const polygon of state.polygons) {
+    for (let index = 0; index < polygon.pointIds.length; index += 1) {
+      const currentId = polygon.pointIds[index];
+      const nextId = polygon.pointIds[(index + 1) % polygon.pointIds.length];
+      addNeighbor(currentId, nextId);
+      addNeighbor(nextId, currentId);
+    }
+  }
+
+  return map;
+}
+
+function normalizeAngleRadians(value) {
+  let angle = value;
+  while (angle <= -Math.PI) {
+    angle += 2 * Math.PI;
+  }
+  while (angle > Math.PI) {
+    angle -= 2 * Math.PI;
+  }
+  return angle;
+}
+
+function angleCandidateKey(candidate) {
+  const left = Math.min(candidate.aId, candidate.bId);
+  const right = Math.max(candidate.aId, candidate.bId);
+  return `${candidate.vertexId}:${left}:${right}`;
+}
+
+function getAngleCandidates() {
+  const candidates = [];
+  const edges = pointConnections();
+
+  for (const [vertexId, neighbors] of edges.entries()) {
+    const neighborIds = [...neighbors];
+    if (neighborIds.length < 2) {
+      continue;
+    }
+
+    for (let i = 0; i < neighborIds.length - 1; i += 1) {
+      for (let j = i + 1; j < neighborIds.length; j += 1) {
+        const aId = neighborIds[i];
+        const bId = neighborIds[j];
+        const vertex = getPointById(vertexId);
+        const a = getPointById(aId);
+        const b = getPointById(bId);
+        if (!vertex || !a || !b) {
+          continue;
+        }
+
+        const v1x = a.x - vertex.x;
+        const v1y = a.y - vertex.y;
+        const v2x = b.x - vertex.x;
+        const v2y = b.y - vertex.y;
+        const m1 = Math.hypot(v1x, v1y);
+        const m2 = Math.hypot(v2x, v2y);
+        if (m1 === 0 || m2 === 0) {
+          continue;
+        }
+
+        const dot = (v1x * v2x + v1y * v2y) / (m1 * m2);
+        const angleDeg = Math.acos(clamp(dot, -1, 1)) * (180 / Math.PI);
+        if (!Number.isFinite(angleDeg)) {
+          continue;
+        }
+
+        candidates.push({ vertexId, aId, bId, angleDeg });
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function getAngleArcGeometry(candidate, radiusPx = 26) {
+  const vertex = getPointById(candidate.vertexId);
+  const a = getPointById(candidate.aId);
+  const b = getPointById(candidate.bId);
+  if (!vertex || !a || !b) {
+    return null;
+  }
+
+  const v = worldToScreen(vertex);
+  const as = worldToScreen(a);
+  const bs = worldToScreen(b);
+
+  const startAngle = Math.atan2(as.y - v.y, as.x - v.x);
+  const rawDelta = normalizeAngleRadians(Math.atan2(bs.y - v.y, bs.x - v.x) - startAngle);
+  const sweep = rawDelta > 0 ? 1 : 0;
+  const endAngle = startAngle + rawDelta;
+  const start = {
+    x: v.x + Math.cos(startAngle) * radiusPx,
+    y: v.y + Math.sin(startAngle) * radiusPx,
+  };
+  const end = {
+    x: v.x + Math.cos(endAngle) * radiusPx,
+    y: v.y + Math.sin(endAngle) * radiusPx,
+  };
+  const middleAngle = startAngle + rawDelta * 0.5;
+  const labelPoint = {
+    x: v.x + Math.cos(middleAngle) * (radiusPx + 12),
+    y: v.y + Math.sin(middleAngle) * (radiusPx + 12),
+  };
+
+  return {
+    center: v,
+    start,
+    end,
+    radiusPx,
+    sweep,
+    labelPoint,
+    largeArc: Math.abs(rawDelta) > Math.PI ? 1 : 0,
+  };
+}
+
+function hitTestAngleCandidate(screen, candidates) {
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    const arc = getAngleArcGeometry(candidate);
+    if (!arc) {
+      continue;
+    }
+    const distance = distanceScreen(screen, arc.labelPoint);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  return bestDistance <= 20 ? best : null;
+}
+
 function setMode(mode) {
   if (!MODES.includes(mode)) {
     return;
@@ -751,6 +1035,8 @@ function setMode(mode) {
     setStatus("Select mode: click to select and drag. Delete removes selected objects.");
   } else if (mode === "polygon") {
     setStatus("Polygon mode: click to place vertices, click the first vertex to close.");
+  } else if (mode === "angle") {
+    setStatus("Angle mode: click a highlighted angle to keep it as annotation.");
   } else if (mode === "midpoint") {
     setStatus("Mid Point mode: click an existing line to insert a point on it.");
   } else if (mode === "segment") {
@@ -842,6 +1128,10 @@ function drawGrid(parentGroup) {
   const rect = getRect();
   const majorStep = chooseGridMajorStep();
   const minorStep = majorStep / 5;
+  const minorColor = getCssVar("--grid-minor", "#dce6ec");
+  const majorColor = getCssVar("--grid-major", "#b0c3cd");
+  const axisColor = getCssVar("--grid-axis", "#6b7f8d");
+  const valueColor = getCssVar("--grid-value", "#53657b");
 
   const minWorld = screenToWorld({ x: 0, y: rect.height });
   const maxWorld = screenToWorld({ x: rect.width, y: 0 });
@@ -854,48 +1144,73 @@ function drawGrid(parentGroup) {
   const gridGroup = document.createElementNS(SVG_NS, "g");
   const majorGroup = document.createElementNS(SVG_NS, "g");
   const axesGroup = document.createElementNS(SVG_NS, "g");
+  const valuesGroup = document.createElementNS(SVG_NS, "g");
 
   for (let x = minX; x <= maxX + minorStep * 0.5; x += minorStep) {
     const screenA = worldToScreen({ x, y: minY });
     const screenB = worldToScreen({ x, y: maxY });
     const isMajor = Math.abs(x / majorStep - Math.round(x / majorStep)) < 1e-9;
+    if ((isMajor && !state.display.showMajorGrid) || (!isMajor && !state.display.showMinorGrid)) {
+      continue;
+    }
     const line = makeLine(screenA.x, screenA.y, screenB.x, screenB.y, {
-      stroke: isMajor ? "#b0c3cd" : "#dce6ec",
+      stroke: isMajor ? majorColor : minorColor,
       "stroke-width": isMajor ? 1.2 : 0.7,
       "stroke-opacity": isMajor ? 0.75 : 0.8,
     });
     (isMajor ? majorGroup : gridGroup).append(line);
+
+    if (isMajor && state.display.showGridValues && Math.abs(x) > 1e-8) {
+      const label = makeText(screenA.x + 2, worldToScreen({ x, y: 0 }).y - 4, String(round2(x)), {
+        "font-size": 10,
+        fill: valueColor,
+      });
+      valuesGroup.append(label);
+    }
   }
 
   for (let y = minY; y <= maxY + minorStep * 0.5; y += minorStep) {
     const screenA = worldToScreen({ x: minX, y });
     const screenB = worldToScreen({ x: maxX, y });
     const isMajor = Math.abs(y / majorStep - Math.round(y / majorStep)) < 1e-9;
+    if ((isMajor && !state.display.showMajorGrid) || (!isMajor && !state.display.showMinorGrid)) {
+      continue;
+    }
     const line = makeLine(screenA.x, screenA.y, screenB.x, screenB.y, {
-      stroke: isMajor ? "#b0c3cd" : "#dce6ec",
+      stroke: isMajor ? majorColor : minorColor,
       "stroke-width": isMajor ? 1.2 : 0.7,
       "stroke-opacity": isMajor ? 0.75 : 0.8,
     });
     (isMajor ? majorGroup : gridGroup).append(line);
+
+    if (isMajor && state.display.showGridValues && Math.abs(y) > 1e-8) {
+      const label = makeText(worldToScreen({ x: 0, y }).x + 4, screenA.y - 2, String(round2(y)), {
+        "font-size": 10,
+        fill: valueColor,
+      });
+      valuesGroup.append(label);
+    }
   }
 
   const xAxis = worldToScreen({ x: 0, y: 0 });
+  if (state.display.showMajorGrid || state.display.showMinorGrid) {
   axesGroup.append(
     makeLine(0, xAxis.y, rect.width, xAxis.y, {
-      stroke: "#6b7f8d",
+      stroke: axisColor,
       "stroke-width": 1.35,
       "stroke-opacity": 0.75,
     })
   );
   axesGroup.append(
     makeLine(xAxis.x, 0, xAxis.x, rect.height, {
-      stroke: "#6b7f8d",
+      stroke: axisColor,
       "stroke-width": 1.35,
       "stroke-opacity": 0.75,
     })
   );
+  }
 
-  parentGroup.append(gridGroup, majorGroup, axesGroup);
+  parentGroup.append(gridGroup, majorGroup, axesGroup, valuesGroup);
 }
 
 function render() {
@@ -909,8 +1224,12 @@ function render() {
   const pointsGroup = document.createElementNS(SVG_NS, "g");
   const labelsGroup = document.createElementNS(SVG_NS, "g");
   const overlaysGroup = document.createElementNS(SVG_NS, "g");
+  const metricGroup = document.createElementNS(SVG_NS, "g");
 
   drawGrid(root);
+
+  const angleCandidates = getAngleCandidates();
+  const pinnedAngleKeys = new Set(state.angleAnnotations.map((item) => angleCandidateKey(item)));
 
   for (const polygon of state.polygons) {
     const points = polygon.pointIds.map((pointId) => getPointById(pointId)).filter(Boolean);
@@ -921,31 +1240,90 @@ function render() {
     const polygonScreenPoints = points.map((point) => worldToScreen(point));
     const selected = state.selection.polygons.has(polygon.id);
 
-    polygonsGroup.append(
-      makePolygon(polygonScreenPoints, {
-        fill: selected ? "rgba(245, 158, 11, 0.28)" : "rgba(15, 118, 110, 0.16)",
-        stroke: selected ? "#b45309" : "#0f766e",
-        "stroke-width": selected ? 2.2 : 1.6,
-      })
-    );
+    if (state.display.showPolygons) {
+      polygonsGroup.append(
+        makePolygon(polygonScreenPoints, {
+          fill: selected ? "rgba(245, 158, 11, 0.28)" : "rgba(15, 118, 110, 0.16)",
+          stroke: selected ? "#b45309" : "#0f766e",
+          "stroke-width": selected ? 2.2 : 1.6,
+        })
+      );
+    }
 
     const area = polygonArea(polygon.pointIds);
+    const perimeter = polygonPerimeter(polygon.pointIds);
+    const converted = areaConversions(area);
     const centroid = points.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
     centroid.x /= points.length;
     centroid.y /= points.length;
     const centroidScreen = worldToScreen(centroid);
-    labelsGroup.append(
-      makeText(centroidScreen.x, centroidScreen.y, `${round2(area)} sq units`, {
+    const xs = polygonScreenPoints.map((point) => point.x);
+    const ys = polygonScreenPoints.map((point) => point.y);
+    const bboxArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+    const showPerimeter = state.display.showLabels && state.display.showPolygons;
+    const showAreaMetrics = state.display.showLabels && state.display.showPolygons && bboxArea > 42000;
+    if (showPerimeter) {
+      const title = makeText(centroidScreen.x, centroidScreen.y - 56, `Perimeter: ${round2(perimeter)} m`, {
         "text-anchor": "middle",
-        "font-size": 13,
-        fill: "#0f4f4a",
+        "font-size": 11,
+        fill: getCssVar("--ink-muted", "#0f4f4a"),
         "font-weight": 700,
         "paint-order": "stroke",
-        stroke: "#ffffff",
+        stroke: getCssVar("--text-halo", "#ffffff"),
         "stroke-width": 3,
         "stroke-opacity": 0.7,
-      })
-    );
+      });
+      labelsGroup.append(title);
+    }
+
+    if (showAreaMetrics) {
+      const areaLines = [
+        `Hectares: ${round3(converted.hectares)}`,
+        `Ares: ${round3(converted.ares)}`,
+        `Sqm: ${round2(converted.sqm)}`,
+        `Acres: ${round3(converted.acres)}`,
+        `Cents: ${round3(converted.cents)}`,
+        `Sqft: ${round2(converted.sqft)}`,
+      ];
+      for (let i = 0; i < areaLines.length; i += 1) {
+        labelsGroup.append(
+          makeText(centroidScreen.x, centroidScreen.y - 40 + i * 12, areaLines[i], {
+            "text-anchor": "middle",
+            "font-size": 10,
+            fill: getCssVar("--ink-muted", "#0f4f4a"),
+            "font-weight": 600,
+            "paint-order": "stroke",
+            stroke: getCssVar("--text-halo", "#ffffff"),
+            "stroke-width": 3,
+            "stroke-opacity": 0.7,
+          })
+        );
+      }
+    }
+
+    if (state.display.showPolygons && state.display.showSegmentLengths && state.display.showLabels) {
+      for (let index = 0; index < points.length; index += 1) {
+        const next = (index + 1) % points.length;
+        const aPoint = points[index];
+        const bPoint = points[next];
+        const aScreen = worldToScreen(aPoint);
+        const bScreen = worldToScreen(bPoint);
+        const midpoint = { x: (aScreen.x + bScreen.x) * 0.5, y: (aScreen.y + bScreen.y) * 0.5 };
+        const edgeLength = distanceWorld(aPoint, bPoint);
+        labelsGroup.append(
+          makeText(midpoint.x, midpoint.y - 5, `${round2(edgeLength)} m`, {
+            "text-anchor": "middle",
+            "font-size": 10,
+            fill: getCssVar("--ink-muted", "#556471"),
+            "font-weight": 600,
+            "paint-order": "stroke",
+            stroke: getCssVar("--text-halo", "#ffffff"),
+            "stroke-width": 3,
+            "stroke-opacity": 0.7,
+          })
+        );
+      }
+    }
   }
 
   if (state.polygonDraft.length >= 2) {
@@ -993,49 +1371,74 @@ function render() {
         : segment.kind === "perpendicular"
           ? "#be123c"
           : "#1f6d64";
-    segmentsGroup.append(
-      makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
-        stroke: selected ? "#f59e0b" : color,
-        "stroke-width": selected ? 3.4 : 2.3,
-        "stroke-linecap": "round",
-      })
-    );
+    if (state.display.showSegments) {
+      segmentsGroup.append(
+        makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
+          stroke: selected ? "#f59e0b" : color,
+          "stroke-width": selected ? 3.4 : 2.3,
+          "stroke-linecap": "round",
+        })
+      );
+    }
+
+    if (state.display.showSegments && state.display.showSegmentLengths && state.display.showLabels) {
+      const midpoint = { x: (aScreen.x + bScreen.x) * 0.5, y: (aScreen.y + bScreen.y) * 0.5 };
+      const length = distanceWorld(a, b);
+      labelsGroup.append(
+        makeText(midpoint.x, midpoint.y - 6, `${round2(length)} m`, {
+          "text-anchor": "middle",
+          "font-size": 10,
+          fill: getCssVar("--ink-muted", "#556471"),
+          "font-weight": 600,
+          "paint-order": "stroke",
+          stroke: getCssVar("--text-halo", "#ffffff"),
+          "stroke-width": 3,
+          "stroke-opacity": 0.65,
+        })
+      );
+    }
   }
 
   for (const point of state.points) {
     const screenPoint = worldToScreen(point);
     const selected = state.selection.points.has(point.id);
-    pointsGroup.append(
-      makeCircle(screenPoint.x, screenPoint.y, selected ? 6.8 : 5.4, {
-        fill: selected ? "#f59e0b" : "#155e75",
-        stroke: "#ffffff",
-        "stroke-width": selected ? 2.2 : 1.6,
-      })
-    );
-    labelsGroup.append(
-      makeText(screenPoint.x + 8, screenPoint.y - 8, `${point.label} (${round2(point.x)}, ${round2(point.y)})`, {
-        "font-size": 11,
-        fill: "#334155",
-        "font-weight": selected ? 700 : 500,
-      })
-    );
+    if (state.display.showPoints) {
+      pointsGroup.append(
+        makeCircle(screenPoint.x, screenPoint.y, selected ? 6.8 : 5.4, {
+          fill: selected ? "#f59e0b" : "#155e75",
+          stroke: "#ffffff",
+          "stroke-width": selected ? 2.2 : 1.6,
+        })
+      );
+    }
+    if (state.display.showLabels) {
+      labelsGroup.append(
+        makeText(screenPoint.x + 8, screenPoint.y - 8, `${point.label} (${round2(point.x)}, ${round2(point.y)})`, {
+          "font-size": 11,
+          fill: getCssVar("--ink-muted", "#334155"),
+          "font-weight": selected ? 700 : 500,
+        })
+      );
+    }
   }
 
-  for (const text of state.texts) {
-    const screenPoint = worldToScreen(text);
-    const selected = state.selection.texts.has(text.id);
-    labelsGroup.append(
-      makeText(screenPoint.x, screenPoint.y, text.content, {
-        "font-size": text.size,
-        "text-anchor": "middle",
-        fill: selected ? "#b45309" : "#1f2937",
-        "font-weight": selected ? 700 : 500,
-        "paint-order": "stroke",
-        stroke: "#ffffff",
-        "stroke-width": 4,
-        "stroke-opacity": 0.8,
-      })
-    );
+  if (state.display.showText) {
+    for (const text of state.texts) {
+      const screenPoint = worldToScreen(text);
+      const selected = state.selection.texts.has(text.id);
+      labelsGroup.append(
+        makeText(screenPoint.x, screenPoint.y, text.content, {
+          "font-size": text.size,
+          "text-anchor": "middle",
+          fill: selected ? "#b45309" : getCssVar("--ink", "#1f2937"),
+          "font-weight": selected ? 700 : 500,
+          "paint-order": "stroke",
+          stroke: getCssVar("--text-halo", "#ffffff"),
+          "stroke-width": 4,
+          "stroke-opacity": 0.9,
+        })
+      );
+    }
   }
 
   if (state.boxSelect) {
@@ -1078,6 +1481,42 @@ function render() {
     );
   }
 
+  if (state.display.showAngles) {
+    for (const candidate of angleCandidates) {
+      const key = angleCandidateKey(candidate);
+      const isPinned = pinnedAngleKeys.has(key);
+      const isPreview = state.mode === "angle";
+      if (!isPinned && !isPreview) {
+        continue;
+      }
+
+      const arc = getAngleArcGeometry(candidate, isPinned ? 30 : 24);
+      if (!arc) {
+        continue;
+      }
+
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", `M ${arc.start.x} ${arc.start.y} A ${arc.radiusPx} ${arc.radiusPx} 0 ${arc.largeArc} ${arc.sweep} ${arc.end.x} ${arc.end.y}`);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", isPinned ? "#0ea5a3" : "rgba(14,165,163,0.6)");
+      path.setAttribute("stroke-width", isPinned ? "2.2" : "1.6");
+      overlaysGroup.append(path);
+
+      labelsGroup.append(
+        makeText(arc.labelPoint.x, arc.labelPoint.y, `${round2(candidate.angleDeg)}deg`, {
+          "font-size": 10,
+          "text-anchor": "middle",
+          fill: isPinned ? "#0f766e" : "rgba(15,118,110,0.8)",
+          "font-weight": 700,
+          "paint-order": "stroke",
+          stroke: getCssVar("--text-halo", "#ffffff"),
+          "stroke-width": 3,
+          "stroke-opacity": 0.7,
+        })
+      );
+    }
+  }
+
   if (state.construction?.tool && state.construction?.baseSegmentId) {
     const segment = getSegmentById(state.construction.baseSegmentId);
     if (segment) {
@@ -1099,7 +1538,7 @@ function render() {
     }
   }
 
-  root.append(polygonsGroup, segmentsGroup, pointsGroup, labelsGroup, overlaysGroup);
+  root.append(polygonsGroup, segmentsGroup, pointsGroup, labelsGroup, metricGroup, overlaysGroup);
   ui.graph.append(root);
 }
 
@@ -1288,6 +1727,36 @@ function handleModeAction(screen, world) {
         ? `Polygon drafting: ${state.polygonDraft.length} vertices, preview area ${round2(draftArea)} sq units.`
         : `Polygon drafting: ${state.polygonDraft.length} vertex added.`
     );
+    return;
+  }
+
+  if (state.mode === "angle") {
+    const candidates = getAngleCandidates();
+    const hit = hitTestAngleCandidate(screen, candidates);
+    if (!hit) {
+      setStatus("No angle candidate at this location.");
+      return;
+    }
+
+    const key = angleCandidateKey(hit);
+    const existingIndex = state.angleAnnotations.findIndex((item) => angleCandidateKey(item) === key);
+    if (existingIndex >= 0) {
+      state.angleAnnotations.splice(existingIndex, 1);
+      pushHistory();
+      render();
+      setStatus("Angle annotation removed.");
+      return;
+    }
+
+    state.angleAnnotations.push({
+      id: createId(),
+      vertexId: hit.vertexId,
+      aId: hit.aId,
+      bId: hit.bId,
+    });
+    pushHistory();
+    render();
+    setStatus(`Angle annotation saved: ${round2(hit.angleDeg)}deg.`);
     return;
   }
 
@@ -1811,6 +2280,7 @@ function handleKeyDown(event) {
     "7": "perpendicular",
     "8": "polygon",
     "9": "text",
+    "0": "angle",
   };
 
   if (!event.ctrlKey && !event.metaKey && modeShortcuts[event.key]) {
@@ -1818,7 +2288,7 @@ function handleKeyDown(event) {
     return;
   }
 
-  const step = event.shiftKey ? 1 : event.altKey ? 0.05 : 0.2;
+  const step = event.shiftKey ? 1 : event.altKey ? 0.01 : 0.2;
   const selectedPointIds = getSelectedPointIds();
   if (
     state.mode === "select" &&
@@ -1889,8 +2359,20 @@ function wireEvents() {
   });
   ui.snapToggle.addEventListener("change", () => {
     state.snapToPoints = ui.snapToggle.checked;
+    saveDisplaySettings();
     setStatus(state.snapToPoints ? "Snap enabled." : "Snap disabled.");
   });
+
+  ui.showPointsToggle.addEventListener("change", (event) => updateDisplaySetting("showPoints", event.target.checked));
+  ui.showLabelsToggle.addEventListener("change", (event) => updateDisplaySetting("showLabels", event.target.checked));
+  ui.showSegmentsToggle.addEventListener("change", (event) => updateDisplaySetting("showSegments", event.target.checked));
+  ui.showSegmentLengthsToggle.addEventListener("change", (event) => updateDisplaySetting("showSegmentLengths", event.target.checked));
+  ui.showTextToggle.addEventListener("change", (event) => updateDisplaySetting("showText", event.target.checked));
+  ui.showPolygonsToggle.addEventListener("change", (event) => updateDisplaySetting("showPolygons", event.target.checked));
+  ui.showAnglesToggle.addEventListener("change", (event) => updateDisplaySetting("showAngles", event.target.checked));
+  ui.showMajorGridToggle.addEventListener("change", (event) => updateDisplaySetting("showMajorGrid", event.target.checked));
+  ui.showMinorGridToggle.addEventListener("change", (event) => updateDisplaySetting("showMinorGrid", event.target.checked));
+  ui.showGridValuesToggle.addEventListener("change", (event) => updateDisplaySetting("showGridValues", event.target.checked));
 
   ui.graph.addEventListener("pointerdown", handlePointerDown);
   ui.graph.addEventListener("pointermove", handlePointerMove);
@@ -1957,6 +2439,8 @@ function wireEvents() {
 function bootstrap() {
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   applyTheme(savedTheme === "dark" ? "dark" : "light");
+  loadDisplaySettings();
+  syncDisplayControlsToState();
   ui.versionBadge.textContent = `v${VERSION}`;
   initializeDemoGeometry();
   wireEvents();

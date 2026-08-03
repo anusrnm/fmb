@@ -59,6 +59,10 @@
             <span class="icon">⬠</span>
             <span class="label">Polygon</span>
           </button>
+          <button class="tool-btn" data-mode="angle" type="button" title="Angle">
+            <span class="icon">∠</span>
+            <span class="label">Angle</span>
+          </button>
           <button class="tool-btn" data-mode="text" type="button" title="Text">
             <span class="icon">T</span>
             <span class="label">Text</span>
@@ -111,10 +115,50 @@
 
     <div id="settings-panel" class="settings-panel" hidden>
       <h2>Settings</h2>
-      <p>This is a placeholder for less frequently used settings.</p>
+      <p>Display controls are stored locally for this browser.</p>
       <label class="toggle-row">
         <input id="snap-toggle" type="checkbox" checked />
         <span>Snap to nearby points while drawing</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-points-toggle" type="checkbox" checked />
+        <span>Points</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-labels-toggle" type="checkbox" checked />
+        <span>Labels</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-segment-lengths-toggle" type="checkbox" checked />
+        <span>Segment lengths</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-segments-toggle" type="checkbox" checked />
+        <span>Segments</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-text-toggle" type="checkbox" checked />
+        <span>Text and labels</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-polygons-toggle" type="checkbox" checked />
+        <span>Shapes</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-angles-toggle" type="checkbox" checked />
+        <span>Angle annotations</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-major-grid-toggle" type="checkbox" checked />
+        <span>Major grid lines</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-minor-grid-toggle" type="checkbox" checked />
+        <span>Minor grid lines</span>
+      </label>
+      <label class="toggle-row">
+        <input id="show-grid-values-toggle" type="checkbox" checked />
+        <span>Grid values</span>
       </label>
       <button id="close-settings-btn" type="button">Close</button>
     </div>
