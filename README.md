@@ -1,26 +1,35 @@
-# FMB Generator
+# FMB Studio
 
-Browser-based field measurement book plot generator. Enter boundary coordinates, inspect the calculated plot, and export or import an SVG that preserves its source data and display settings.
+A graph-first, single-page field geometry editor with drawing tools, selection workflows, polygon area preview, zoom, and import/export.
 
-## Run locally
+## Run
+
+No app server is required. Open [index.html](index.html) directly in a browser.
+
+Optional local server (if your browser blocks file imports from local files):
 
 ```bash
 deno run --allow-env --allow-net --allow-read main.ts
 ```
 
-Open the local address shown by Deno, usually `http://localhost:8000`.
+## Main features
 
-## Use
+- Top menu bar with drawing modes: Select, Box Select, Point, Mid Point, Segment, Parallel, Perpendicular, Polygon, Text.
+- Polygon drafting closes by clicking the first vertex and shows transparent area shading while drafting.
+- Select mode supports click selection, Ctrl/Cmd additive selection, drag to move, and Delete/Backspace removal.
+- Graph takes the main workspace area with major and minor gridlines and smooth zoom/pan.
+- Zoom controls include in/out and zoom reset.
+- Undo/Redo with keyboard shortcuts.
+- Right-click context menu includes View / Copy Coordinates.
+- Import/Export for JSON and SVG.
+- Mobile toolbar toggle with centered tool icons.
 
-- Enter one point per line as `Name, x, y`, `Name: x, y`, or `x, y`.
-- Draw and edit directly on the plot: click empty space to add a point, drag a point to move it, click an edge to insert a point, and press Delete or Backspace to remove the selected point. Arrow keys nudge it; hold Shift for larger and Alt for finer movement.
-- Choose **Move graph** and drag the plot to pan the entire graph without changing its coordinates. Middle-mouse dragging also pans.
-- Hold Ctrl (or Cmd) while clicking points to select multiple points. Select three points to create an angle arc; click an arc and press Delete or Backspace to remove it.
-- Select exactly two points with Ctrl (or Cmd), then choose **Create segment** to draw a segment between them. You can also enter two or more segment points in the **Segments** field.
-- Segment lengths are shown when **Labels** is enabled. Choose **Add text** to create text directly on the plot. Double-click it to edit, drag it to reposition it, use arrow keys to nudge selected text, and adjust **Selected text size** to change its size.
-- Toggle points, gridlines, all labels, angle arcs, and segments independently.
-- Choose plot colors with the color inputs. **Reset colors** restores the active light or dark theme palette.
-- Export and import SVG files to retain coordinates, display choices, and custom colors.
+## Shortcuts
+
+- Ctrl/Cmd + Z: Undo
+- Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z: Redo
+- Delete / Backspace: Delete selection
+- 1..9: Switch modes in toolbar order
 
 ## Verify
 

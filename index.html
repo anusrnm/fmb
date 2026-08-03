@@ -3,102 +3,134 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FMB Generator</title>
-    <link rel="icon" href="data:,">
+    <title>FMB Studio</title>
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar">
-        <div class="sidebar-top">
-          <div class="sidebar-heading">
-            <p class="eyebrow">FMB web app</p>
-            <button id="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">🌙</button>
-          </div>
-          <p class="subtitle">
-            Enter point coordinates in a natural format, inspect the plot, and calculate
-            property area in multiple units.
-          </p>
-        </div>
-
-        <div class="action-row">
-          <button id="add-text-btn" type="button">Add text</button>
-          <button id="move-graph-btn" type="button" aria-pressed="false">Move graph</button>
-        </div>
-
-        <div class="compact-row">
-          <label class="checkbox-row">
-            <input id="show-points" type="checkbox" checked />
-            <span>Show points</span>
-          </label>
-          <label class="checkbox-row">
-            <input id="show-gridlines" type="checkbox" checked />
-            <span>Gridlines</span>
-          </label>
-          <label class="checkbox-row">
-            <input id="show-labels" type="checkbox" checked />
-            <span>Labels</span>
-          </label>
-          <label class="checkbox-row">
-            <input id="show-angle-arcs" type="checkbox" checked />
-            <span>Angle arcs</span>
-          </label>
-          <label class="checkbox-row">
-            <input id="show-segments" type="checkbox" checked />
-            <span>Segments</span>
-          </label>
-        </div>
-
-        <div class="control-group">
-          <span class="control-label">Plot colors</span>
-          <div class="color-grid">
-            <label>Boundary <input id="color-boundary" type="color" /></label>
-            <label>Points <input id="color-point" type="color" /></label>
-            <label>Labels <input id="color-label" type="color" /></label>
-            <label>Segments <input id="color-segment" type="color" /></label>
-            <label>Arcs <input id="color-arc" type="color" /></label>
-            <button id="reset-colors-btn" type="button">Reset colors</button>
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="mobile-menu-toggle" class="icon-btn mobile-only" type="button" aria-expanded="false" aria-controls="tool-menu" title="Open tools">
+            <span class="icon">|||</span>
+          </button>
+          <div class="brand-wrap">
+            <h1>FMB Studio</h1>
+            <span id="version-badge" class="version-badge"></span>
           </div>
         </div>
 
-        <div class="control-group">
-          <label for="text-size">Selected text size <output id="text-size-value" for="text-size">16 px</output></label>
-          <input id="text-size" type="range" min="10" max="48" value="16" />
-        </div>
+        <nav id="tool-menu" class="tool-menu" aria-label="Drawing tools">
+          <button class="tool-btn active" data-mode="select" type="button" title="Select">
+            <span class="icon">SEL</span>
+            <span class="label">Select</span>
+          </button>
+          <button class="tool-btn" data-mode="box-select" type="button" title="Box Select">
+            <span class="icon">BOX</span>
+            <span class="label">Box</span>
+          </button>
+          <button class="tool-btn" data-mode="point" type="button" title="Point">
+            <span class="icon">PT</span>
+            <span class="label">Point</span>
+          </button>
+          <button class="tool-btn" data-mode="midpoint" type="button" title="Mid Point">
+            <span class="icon">MID</span>
+            <span class="label">Mid</span>
+          </button>
+          <button class="tool-btn" data-mode="segment" type="button" title="Segment">
+            <span class="icon">SEG</span>
+            <span class="label">Segment</span>
+          </button>
+          <button class="tool-btn" data-mode="parallel" type="button" title="Parallel">
+            <span class="icon">PAR</span>
+            <span class="label">Parallel</span>
+          </button>
+          <button class="tool-btn" data-mode="perpendicular" type="button" title="Perpendicular">
+            <span class="icon">PERP</span>
+            <span class="label">Perp</span>
+          </button>
+          <button class="tool-btn" data-mode="polygon" type="button" title="Polygon">
+            <span class="icon">POLY</span>
+            <span class="label">Polygon</span>
+          </button>
+          <button class="tool-btn" data-mode="text" type="button" title="Text">
+            <span class="icon">TXT</span>
+            <span class="label">Text</span>
+          </button>
+        </nav>
 
-        <div class="control-group">
-          <label for="points-input">Points</label>
-          <textarea id="points-input" rows="5"></textarea>
+        <div class="topbar-right">
+          <button id="undo-btn" class="icon-btn" type="button" title="Undo (Ctrl+Z)">
+            <span class="icon">UNDO</span>
+          </button>
+          <button id="redo-btn" class="icon-btn" type="button" title="Redo (Ctrl+Y)">
+            <span class="icon">REDO</span>
+          </button>
+          <button id="zoom-out-btn" class="icon-btn" type="button" title="Zoom out">
+            <span class="icon">-</span>
+          </button>
+          <button id="zoom-in-btn" class="icon-btn" type="button" title="Zoom in">
+            <span class="icon">+</span>
+          </button>
+          <button id="zoom-reset-btn" class="icon-btn" type="button" title="Reset zoom and position">
+            <span class="icon">100%</span>
+          </button>
+          <button id="export-json-btn" class="icon-btn" type="button" title="Export JSON">
+            <span class="icon">EXJ</span>
+          </button>
+          <button id="export-svg-btn" class="icon-btn" type="button" title="Export SVG">
+            <span class="icon">EXS</span>
+          </button>
+          <button id="import-btn" class="icon-btn" type="button" title="Import JSON or SVG">
+            <span class="icon">IMP</span>
+          </button>
+          <button id="settings-btn" class="icon-btn settings-btn" type="button" title="Settings">
+            <span class="icon">SET</span>
+          </button>
+          <input id="import-file" type="file" accept=".json,.svg" hidden />
         </div>
+      </header>
 
-        <div class="control-group">
-          <label for="joins-input">Segments</label>
-          <textarea id="joins-input" rows="5" placeholder="Segment point 1, 0, 0&#10;Segment point 2, 80, -35"></textarea>
-        </div>
-
-        <div class="action-row">
-          <button id="export-btn" type="button">Export SVG</button>
-          <button id="import-btn" type="button">Import SVG</button>
-          <button id="save-graph-btn" type="button">Save Graph</button>
-        </div>
-        <div class="action-row">
-          <button id="create-segment-btn" type="button">Create segment</button>
-          <button id="undo-btn" type="button">Undo</button>
-          <button id="redo-btn" type="button">Redo</button>
-        </div>
-        <input id="import-file" type="file" accept=".svg,.json" hidden />
-
-        <div id="warnings" class="warnings" aria-live="polite"></div>
-        <div id="status-message" class="status-message" role="status"></div>
-      </aside>
-
-      <main class="main-panel">
-        <div class="plot-card">
-          <svg id="plot" viewBox="0 0 800 500" role="img" aria-label="Property plot"></svg>
-        </div>
+      <main class="workspace">
+        <section class="graph-panel" aria-label="Graph editor">
+          <svg id="graph" viewBox="0 0 1600 900" role="img" aria-label="Interactive graph"></svg>
+          <div id="status" class="status-pill" role="status" aria-live="polite"></div>
+        </section>
       </main>
     </div>
 
-    <script type="module" src="./app.js?v=theme-icon"></script>
+    <div id="settings-panel" class="settings-panel" hidden>
+      <h2>Settings</h2>
+      <p>This is a placeholder for less frequently used settings.</p>
+      <label class="toggle-row">
+        <input id="snap-toggle" type="checkbox" checked />
+        <span>Snap to nearby points while drawing</span>
+      </label>
+      <button id="close-settings-btn" type="button">Close</button>
+    </div>
+
+    <div id="context-menu" class="context-menu" hidden>
+      <button id="view-points-btn" type="button">View / Copy Coordinates</button>
+    </div>
+
+    <dialog id="points-dialog" class="points-dialog">
+      <form method="dialog">
+        <h3>Diagram Coordinates</h3>
+        <p>Right click anywhere on the graph to open this list quickly.</p>
+        <textarea id="points-output" rows="12" readonly></textarea>
+        <div class="dialog-actions">
+          <button id="copy-points-btn" value="copy" type="button">Copy</button>
+          <button value="close" type="submit">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js?v=ui2"></script>
   </body>
 </html>
