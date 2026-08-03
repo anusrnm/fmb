@@ -1,4 +1,4 @@
-const VERSION = "2.2.0";
+const VERSION = "2.2.1";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -333,6 +333,9 @@ function applyCoreState(serialized) {
     ? serialized.polygons.map((polygon) => ({
         id: Number(polygon.id),
         pointIds: Array.isArray(polygon.pointIds) ? polygon.pointIds.map((id) => Number(id)) : [],
+        labelOffset: polygon.labelOffset
+          ? { x: Number(polygon.labelOffset.x) || 0, y: Number(polygon.labelOffset.y) || 0 }
+          : { x: 0, y: 0 },
       }))
     : [];
   state.texts = Array.isArray(serialized.texts)
@@ -578,6 +581,22 @@ function addSegment(a, b, kind = "segment") {
   return segment;
 }
 
+function isSegmentInsidePolygon(aId, bId) {
+  for (const polygon of state.polygons) {
+    const ids = polygon.pointIds;
+    if (!ids.includes(aId) || !ids.includes(bId)) continue;
+    const n = ids.length;
+    for (let i = 0; i < n; i += 1) {
+      const next = (i + 1) % n;
+      if ((ids[i] === aId && ids[next] === bId) || (ids[i] === bId && ids[next] === aId)) {
+        return false; // it's a polygon edge, not a diagonal
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
 function addPolygon(pointIds) {
   if (!Array.isArray(pointIds) || pointIds.length < 3) {
     return null;
@@ -586,6 +605,7 @@ function addPolygon(pointIds) {
   const polygon = {
     id: createId(),
     pointIds: [...pointIds],
+    labelOffset: { x: 0, y: 0 },
   };
   state.polygons.push(polygon);
   return polygon;
@@ -825,6 +845,31 @@ function pointInsidePolygonScreen(screen, polygon) {
     }
   }
   return inside;
+}
+
+function hitTestPolygonLabel(screen) {
+  for (let index = state.polygons.length - 1; index >= 0; index -= 1) {
+    const polygon = state.polygons[index];
+    const points = polygon.pointIds.map((id) => getPointById(id)).filter(Boolean);
+    if (points.length < 3) continue;
+    const centroid = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+    centroid.x /= points.length;
+    centroid.y /= points.length;
+    const origin = worldToScreen({
+      x: centroid.x + (polygon.labelOffset?.x ?? 0),
+      y: centroid.y + (polygon.labelOffset?.y ?? 0),
+    });
+    // label block spans roughly: x ±70, y from -65 to +40
+    if (
+      screen.x >= origin.x - 70 &&
+      screen.x <= origin.x + 70 &&
+      screen.y >= origin.y - 65 &&
+      screen.y <= origin.y + 40
+    ) {
+      return polygon;
+    }
+  }
+  return null;
 }
 
 function hitTestPolygon(screen) {
@@ -1257,13 +1302,17 @@ function render() {
     centroid.x /= points.length;
     centroid.y /= points.length;
     const centroidScreen = worldToScreen(centroid);
+    const labelOriginScreen = worldToScreen({
+      x: centroid.x + (polygon.labelOffset?.x ?? 0),
+      y: centroid.y + (polygon.labelOffset?.y ?? 0),
+    });
     const xs = polygonScreenPoints.map((point) => point.x);
     const ys = polygonScreenPoints.map((point) => point.y);
     const bboxArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
     const showPerimeter = state.display.showLabels && state.display.showPolygons;
     const showAreaMetrics = state.display.showLabels && state.display.showPolygons && bboxArea > 42000;
     if (showPerimeter) {
-      const title = makeText(centroidScreen.x, centroidScreen.y - 56, `Perimeter: ${round2(perimeter)} m`, {
+      const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 56, `Perimeter: ${round2(perimeter)} m`, {
         "text-anchor": "middle",
         "font-size": 11,
         fill: getCssVar("--ink-muted", "#0f4f4a"),
@@ -1287,7 +1336,7 @@ function render() {
       ];
       for (let i = 0; i < areaLines.length; i += 1) {
         labelsGroup.append(
-          makeText(centroidScreen.x, centroidScreen.y - 40 + i * 12, areaLines[i], {
+          makeText(labelOriginScreen.x, labelOriginScreen.y - 40 + i * 12, areaLines[i], {
             "text-anchor": "middle",
             "font-size": 10,
             fill: getCssVar("--ink-muted", "#0f4f4a"),
@@ -1372,11 +1421,13 @@ function render() {
           ? "#be123c"
           : "#1f6d64";
     if (state.display.showSegments) {
+      const isDiagonal = isSegmentInsidePolygon(segment.a, segment.b);
       segmentsGroup.append(
         makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
           stroke: selected ? "#f59e0b" : color,
           "stroke-width": selected ? 3.4 : 2.3,
           "stroke-linecap": "round",
+          ...(isDiagonal && { "stroke-dasharray": "6 4" }),
         })
       );
     }
@@ -1818,11 +1869,12 @@ function handlePointerDown(event) {
   const hitPoint = hitTestPoint(screen);
   const hitText = hitTestText(screen);
   const hitSegment = hitTestSegment(screen);
-  const hitPolygon = hitTestPolygon(screen);
+  const hitPolygonLabel = hitTestPolygonLabel(screen);
+  const hitPolygon = !hitPolygonLabel && hitTestPolygon(screen);
 
   const additive = event.ctrlKey || event.metaKey;
 
-  if (!hitPoint && !hitText && !hitSegment && !hitPolygon) {
+  if (!hitPoint && !hitText && !hitSegment && !hitPolygon && !hitPolygonLabel) {
     if (!additive) {
       clearSelection();
       render();
@@ -1873,6 +1925,13 @@ function handlePointerDown(event) {
       textId: hitText.id,
       anchorWorld: world,
       start: { x: hitText.x, y: hitText.y },
+    };
+  } else if (hitPolygonLabel) {
+    state.drag = {
+      type: "move-polygon-label",
+      polygonId: hitPolygonLabel.id,
+      anchorWorld: world,
+      startOffset: { ...(hitPolygonLabel.labelOffset ?? { x: 0, y: 0 }) },
     };
   } else if (hitSegment) {
     if (additive) {
@@ -1948,6 +2007,18 @@ function handlePointerMove(event) {
     if (text) {
       text.x = round2(state.drag.start.x + (world.x - state.drag.anchorWorld.x));
       text.y = round2(state.drag.start.y + (world.y - state.drag.anchorWorld.y));
+      render();
+    }
+    return;
+  }
+
+  if (state.drag?.type === "move-polygon-label") {
+    const polygon = getPolygonById(state.drag.polygonId);
+    if (polygon) {
+      polygon.labelOffset = {
+        x: round2(state.drag.startOffset.x + (world.x - state.drag.anchorWorld.x)),
+        y: round2(state.drag.startOffset.y + (world.y - state.drag.anchorWorld.y)),
+      };
       render();
     }
     return;
@@ -2034,7 +2105,7 @@ function handlePointerUp(event) {
     return;
   }
 
-  if (state.drag?.type === "move-points" || state.drag?.type === "move-text") {
+  if (state.drag?.type === "move-points" || state.drag?.type === "move-text" || state.drag?.type === "move-polygon-label") {
     pushHistory();
   }
 
@@ -2219,7 +2290,7 @@ function initializeDemoGeometry() {
   const p4 = addPoint(-5, 9, { label: "D" });
   addPolygon([p1.id, p2.id, p3.id, p4.id]);
   addSegment(p1.id, p3.id, "segment");
-  addText({ x: 1, y: 2 }, "New UI baseline");
+  addText({ x: 1, y: 2 }, "Title Goes Here", 18);
 }
 
 function handleKeyDown(event) {
