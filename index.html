@@ -18,7 +18,7 @@
       <header class="topbar">
         <div class="topbar-left">
           <button id="mobile-menu-toggle" class="icon-btn mobile-only" type="button" aria-expanded="false" aria-controls="tool-menu" title="Open tools">
-            <span class="icon">|||</span>
+            <span class="icon">☰</span>
           </button>
           <div class="brand-wrap">
             <h1>FMB Studio</h1>
@@ -28,49 +28,49 @@
 
         <nav id="tool-menu" class="tool-menu" aria-label="Drawing tools">
           <button class="tool-btn active" data-mode="select" type="button" title="Select">
-            <span class="icon">SEL</span>
+            <span class="icon">↖</span>
             <span class="label">Select</span>
           </button>
           <button class="tool-btn" data-mode="box-select" type="button" title="Box Select">
-            <span class="icon">BOX</span>
+            <span class="icon">▭</span>
             <span class="label">Box</span>
           </button>
           <button class="tool-btn" data-mode="point" type="button" title="Point">
-            <span class="icon">PT</span>
+            <span class="icon">●</span>
             <span class="label">Point</span>
           </button>
           <button class="tool-btn" data-mode="midpoint" type="button" title="Mid Point">
-            <span class="icon">MID</span>
+            <span class="icon">◎</span>
             <span class="label">Mid</span>
           </button>
           <button class="tool-btn" data-mode="segment" type="button" title="Segment">
-            <span class="icon">SEG</span>
+            <span class="icon">／</span>
             <span class="label">Segment</span>
           </button>
           <button class="tool-btn" data-mode="parallel" type="button" title="Parallel">
-            <span class="icon">PAR</span>
+            <span class="icon">∥</span>
             <span class="label">Parallel</span>
           </button>
           <button class="tool-btn" data-mode="perpendicular" type="button" title="Perpendicular">
-            <span class="icon">PERP</span>
+            <span class="icon">⟂</span>
             <span class="label">Perp</span>
           </button>
           <button class="tool-btn" data-mode="polygon" type="button" title="Polygon">
-            <span class="icon">POLY</span>
+            <span class="icon">⬠</span>
             <span class="label">Polygon</span>
           </button>
           <button class="tool-btn" data-mode="text" type="button" title="Text">
-            <span class="icon">TXT</span>
+            <span class="icon">T</span>
             <span class="label">Text</span>
           </button>
         </nav>
 
         <div class="topbar-right">
           <button id="undo-btn" class="icon-btn" type="button" title="Undo (Ctrl+Z)">
-            <span class="icon">UNDO</span>
+            <span class="icon">↶</span>
           </button>
           <button id="redo-btn" class="icon-btn" type="button" title="Redo (Ctrl+Y)">
-            <span class="icon">REDO</span>
+            <span class="icon">↷</span>
           </button>
           <button id="zoom-out-btn" class="icon-btn" type="button" title="Zoom out">
             <span class="icon">-</span>
@@ -82,16 +82,19 @@
             <span class="icon">100%</span>
           </button>
           <button id="export-json-btn" class="icon-btn" type="button" title="Export JSON">
-            <span class="icon">EXJ</span>
+            <span class="icon">⇩J</span>
           </button>
           <button id="export-svg-btn" class="icon-btn" type="button" title="Export SVG">
-            <span class="icon">EXS</span>
+            <span class="icon">⇩S</span>
           </button>
           <button id="import-btn" class="icon-btn" type="button" title="Import JSON or SVG">
-            <span class="icon">IMP</span>
+            <span class="icon">⇧</span>
+          </button>
+          <button id="theme-toggle-btn" class="icon-btn" type="button" title="Toggle theme">
+            <span class="icon">◐</span>
           </button>
           <button id="settings-btn" class="icon-btn settings-btn" type="button" title="Settings">
-            <span class="icon">SET</span>
+            <span class="icon">⚙</span>
           </button>
           <input id="import-file" type="file" accept=".json,.svg" hidden />
         </div>
@@ -100,6 +103,7 @@
       <main class="workspace">
         <section class="graph-panel" aria-label="Graph editor">
           <svg id="graph" viewBox="0 0 1600 900" role="img" aria-label="Interactive graph"></svg>
+          <input id="inline-text-editor" class="inline-text-editor" type="text" maxlength="140" hidden aria-label="Inline text editor" />
           <div id="status" class="status-pill" role="status" aria-live="polite"></div>
         </section>
       </main>
@@ -117,6 +121,7 @@
 
     <div id="context-menu" class="context-menu" hidden>
       <button id="view-points-btn" type="button">View / Copy Coordinates</button>
+      <button id="join-points-btn" type="button">Join Selected Points</button>
     </div>
 
     <dialog id="points-dialog" class="points-dialog">

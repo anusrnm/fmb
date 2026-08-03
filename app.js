@@ -1,5 +1,6 @@
-const VERSION = "2.0.0";
+const VERSION = "2.1.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
+const THEME_STORAGE_KEY = "fmb-theme";
 
 const MODES = [
   "select",
@@ -30,7 +31,9 @@ const state = {
   drag: null,
   boxSelect: null,
   polygonDraft: [],
+  midpointHoverWorld: null,
   construction: null,
+  textEdit: null,
   selection: {
     points: new Set(),
     segments: new Set(),
@@ -56,6 +59,7 @@ const ui = {
   exportJsonBtn: document.getElementById("export-json-btn"),
   exportSvgBtn: document.getElementById("export-svg-btn"),
   importBtn: document.getElementById("import-btn"),
+  themeToggleBtn: document.getElementById("theme-toggle-btn"),
   importFile: document.getElementById("import-file"),
   settingsBtn: document.getElementById("settings-btn"),
   settingsPanel: document.getElementById("settings-panel"),
@@ -63,9 +67,11 @@ const ui = {
   snapToggle: document.getElementById("snap-toggle"),
   contextMenu: document.getElementById("context-menu"),
   viewPointsBtn: document.getElementById("view-points-btn"),
+  joinPointsBtn: document.getElementById("join-points-btn"),
   pointsDialog: document.getElementById("points-dialog"),
   pointsOutput: document.getElementById("points-output"),
   copyPointsBtn: document.getElementById("copy-points-btn"),
+  inlineTextEditor: document.getElementById("inline-text-editor"),
 };
 
 function clamp(value, min, max) {
@@ -137,6 +143,36 @@ function clearSelection() {
   state.selection.texts.clear();
 }
 
+function getSelectedPointIds() {
+  const ids = new Set(state.selection.points);
+
+  for (const segmentId of state.selection.segments) {
+    const segment = getSegmentById(segmentId);
+    if (segment) {
+      ids.add(segment.a);
+      ids.add(segment.b);
+    }
+  }
+
+  for (const polygonId of state.selection.polygons) {
+    const polygon = getPolygonById(polygonId);
+    if (polygon) {
+      for (const pointId of polygon.pointIds) {
+        ids.add(pointId);
+      }
+    }
+  }
+
+  return ids;
+}
+
+function getOrderedSelectedPoints() {
+  return [...getSelectedPointIds()]
+    .map((pointId) => getPointById(pointId))
+    .filter(Boolean)
+    .sort((a, b) => a.id - b.id);
+}
+
 function serializeCoreState() {
   return {
     version: VERSION,
@@ -193,7 +229,9 @@ function applyCoreState(serialized) {
   state.drag = null;
   state.boxSelect = null;
   state.polygonDraft = [];
+  state.midpointHoverWorld = null;
   state.construction = null;
+  closeInlineTextEditor(false, false);
 }
 
 function pushHistory() {
@@ -247,6 +285,114 @@ function updateUndoRedoButtons() {
 
 function setStatus(message) {
   ui.status.textContent = message;
+}
+
+function isInlineEditorOpen() {
+  return !ui.inlineTextEditor.hidden;
+}
+
+function openInlineTextEditor(screen, options = {}) {
+  const textId = options.textId ?? null;
+  const text = textId ? getTextById(textId) : null;
+  const initialValue = options.initialValue ?? text?.content ?? "";
+  const world = options.world ?? (text ? { x: text.x, y: text.y } : null);
+  if (!world) {
+    return;
+  }
+
+  state.textEdit = {
+    textId,
+    world,
+  };
+
+  ui.inlineTextEditor.value = initialValue;
+  ui.inlineTextEditor.style.left = `${screen.x}px`;
+  ui.inlineTextEditor.style.top = `${screen.y}px`;
+  ui.inlineTextEditor.hidden = false;
+  ui.inlineTextEditor.focus();
+  ui.inlineTextEditor.select();
+}
+
+function closeInlineTextEditor(save, switchToSelect) {
+  if (!isInlineEditorOpen() || !state.textEdit) {
+    return;
+  }
+
+  const payload = state.textEdit;
+  const value = ui.inlineTextEditor.value.trim();
+  ui.inlineTextEditor.hidden = true;
+  state.textEdit = null;
+
+  if (save) {
+    if (payload.textId) {
+      const target = getTextById(payload.textId);
+      if (target && value) {
+        target.content = value;
+        pushHistory();
+      }
+    } else if (value) {
+      addText(payload.world, value);
+      pushHistory();
+    }
+    render();
+  }
+
+  if (switchToSelect) {
+    setMode("select");
+  }
+}
+
+function insertPointOnEdge(edgePick, worldPoint) {
+  const inserted = addPoint(worldPoint.x, worldPoint.y);
+  if (edgePick.edge.edgeType === "segment") {
+    state.segments = state.segments.filter((segment) => segment.id !== edgePick.edge.id);
+    addSegment(edgePick.edge.aId, inserted.id, "segment");
+    addSegment(inserted.id, edgePick.edge.bId, "segment");
+  } else {
+    const polygon = getPolygonById(edgePick.edge.polygonId);
+    if (polygon) {
+      polygon.pointIds.splice(edgePick.edge.edgeIndex + 1, 0, inserted.id);
+    }
+  }
+  return inserted;
+}
+
+function joinSelectedPoints() {
+  const points = getOrderedSelectedPoints();
+  if (points.length < 2) {
+    setStatus("Select at least two points to join.");
+    return;
+  }
+
+  let createdCount = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const created = addSegment(points[index].id, points[index + 1].id, "segment");
+    if (created) {
+      createdCount += 1;
+    }
+  }
+
+  if (createdCount === 0) {
+    setStatus("No new joins were created.");
+    return;
+  }
+
+  pushHistory();
+  render();
+  setStatus(`Created ${createdCount} join(s).`);
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", nextTheme);
+  ui.themeToggleBtn.title = nextTheme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  applyTheme(current === "dark" ? "light" : "dark");
+  render();
 }
 
 function getSnapPoint(worldPoint, maxDistancePx = 14) {
@@ -596,7 +742,7 @@ function setMode(mode) {
   ui.graph.classList.remove(...MODES.map((entry) => `mode-${entry}`));
   ui.graph.classList.add(`mode-${mode}`);
 
-  if (window.matchMedia("(max-width: 920px)").matches) {
+  if (globalThis.matchMedia("(max-width: 920px)").matches) {
     ui.toolMenu.classList.remove("open");
     ui.mobileMenuToggle.setAttribute("aria-expanded", "false");
   }
@@ -921,6 +1067,17 @@ function render() {
     );
   }
 
+  if (state.mode === "midpoint" && state.midpointHoverWorld) {
+    const midScreen = worldToScreen(state.midpointHoverWorld);
+    overlaysGroup.append(
+      makeCircle(midScreen.x, midScreen.y, 6.2, {
+        fill: "rgba(34, 193, 181, 0.3)",
+        stroke: "#0f766e",
+        "stroke-width": 2,
+      })
+    );
+  }
+
   if (state.construction?.tool && state.construction?.baseSegmentId) {
     const segment = getSegmentById(state.construction.baseSegmentId);
     if (segment) {
@@ -973,7 +1130,18 @@ function resolvePointForDrawing(worldPoint) {
 
 function handleModeAction(screen, world) {
   if (state.mode === "point") {
-    const point = resolvePointForDrawing(world);
+    const hitPoint = hitTestPoint(screen, 10);
+    const edgePick = hitPoint ? null : findNearestEdge(world);
+    let point;
+
+    if (hitPoint) {
+      point = hitPoint;
+    } else if (edgePick) {
+      point = insertPointOnEdge(edgePick, edgePick.projection.point);
+    } else {
+      point = resolvePointForDrawing(world);
+    }
+
     clearSelection();
     state.selection.points.add(point.id);
     pushHistory();
@@ -989,21 +1157,21 @@ function handleModeAction(screen, world) {
       return;
     }
 
-    const inserted = addPoint(edgePick.projection.point.x, edgePick.projection.point.y);
-    if (edgePick.edge.edgeType === "segment") {
-      state.segments = state.segments.filter((segment) => segment.id !== edgePick.edge.id);
-      addSegment(edgePick.edge.aId, inserted.id, "segment");
-      addSegment(inserted.id, edgePick.edge.bId, "segment");
-    } else {
-      const polygon = getPolygonById(edgePick.edge.polygonId);
-      if (polygon) {
-        polygon.pointIds.splice(edgePick.edge.edgeIndex + 1, 0, inserted.id);
-      }
+    const a = getPointById(edgePick.edge.aId);
+    const b = getPointById(edgePick.edge.bId);
+    if (!a || !b) {
+      return;
     }
+
+    const midpoint = {
+      x: (a.x + b.x) * 0.5,
+      y: (a.y + b.y) * 0.5,
+    };
+    const inserted = insertPointOnEdge(edgePick, midpoint);
 
     pushHistory();
     render();
-    setStatus(`Point inserted on line at (${round2(inserted.x)}, ${round2(inserted.y)}).`);
+    setStatus(`Midpoint inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`);
     return;
   }
 
@@ -1124,15 +1292,8 @@ function handleModeAction(screen, world) {
   }
 
   if (state.mode === "text") {
-    const value = window.prompt("Enter text", "Label");
-    if (value === null) {
-      setStatus("Text creation canceled.");
-      return;
-    }
-    addText(world, value.trim() || "Label");
-    pushHistory();
-    render();
-    setStatus("Text inserted.");
+    openInlineTextEditor(screen, { world, initialValue: "" });
+    setStatus("Type text and press Enter.");
     return;
   }
 
@@ -1154,6 +1315,10 @@ function movePoint(pointId, dxWorld, dyWorld) {
 function handlePointerDown(event) {
   event.preventDefault();
   hideContextMenu();
+
+  if (isInlineEditorOpen() && event.target !== ui.inlineTextEditor) {
+    closeInlineTextEditor(true, false);
+  }
 
   if (event.button === 2) {
     return;
@@ -1263,6 +1428,21 @@ function handlePointerMove(event) {
   const world = screenToWorld(screen);
   state.hoverScreen = screen;
   state.hoverWorld = world;
+
+  if (state.mode === "midpoint") {
+    const edgePick = findNearestEdge(world);
+    if (edgePick) {
+      const a = getPointById(edgePick.edge.aId);
+      const b = getPointById(edgePick.edge.bId);
+      state.midpointHoverWorld = a && b
+        ? { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 }
+        : null;
+    } else {
+      state.midpointHoverWorld = null;
+    }
+  } else {
+    state.midpointHoverWorld = null;
+  }
 
   if (!state.drag && state.mode !== "box-select") {
     render();
@@ -1436,11 +1616,16 @@ function resetZoomAndPan() {
 }
 
 function pointsToCoordinateList() {
-  return state.points
-    .slice()
-    .sort((a, b) => a.id - b.id)
-    .map((point) => `${point.label}, ${round2(point.x)}, ${round2(point.y)}`)
-    .join("\n");
+  const selectedPoints = getOrderedSelectedPoints();
+  const points = selectedPoints.length > 0
+    ? selectedPoints
+    : state.points.slice().sort((a, b) => a.id - b.id);
+
+  if (points.length === 0) {
+    return "No points in the current selection.";
+  }
+
+  return points.map((point) => `${point.label}, ${round2(point.x)}, ${round2(point.y)}`).join("\n");
 }
 
 function showPointListDialog() {
@@ -1485,6 +1670,14 @@ function exportJson() {
 function getSvgSnapshotMarkup() {
   const svgClone = ui.graph.cloneNode(true);
   svgClone.setAttribute("xmlns", SVG_NS);
+  const style = document.createElementNS(SVG_NS, "style");
+  style.textContent = `
+    text {
+      font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+      letter-spacing: 0.01em;
+    }
+  `;
+  svgClone.prepend(style);
   const metadata = document.createElementNS(SVG_NS, "metadata");
   metadata.setAttribute("id", "fmb-state");
   metadata.textContent = JSON.stringify(serializeCoreState());
@@ -1498,7 +1691,7 @@ function exportSvg() {
   setStatus("Diagram exported as SVG.");
 }
 
-async function importFromText(filename, text) {
+function importFromText(filename, text) {
   try {
     if (filename.toLowerCase().endsWith(".json")) {
       const parsed = JSON.parse(text);
@@ -1561,6 +1754,15 @@ function initializeDemoGeometry() {
 }
 
 function handleKeyDown(event) {
+  if (event.key === "Escape") {
+    if (isInlineEditorOpen()) {
+      closeInlineTextEditor(false, true);
+      return;
+    }
+    setMode("select");
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
     event.preventDefault();
     undo();
@@ -1585,6 +1787,20 @@ function handleKeyDown(event) {
     return;
   }
 
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+    if (document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+      return;
+    }
+    event.preventDefault();
+    state.selection.points = new Set(state.points.map((point) => point.id));
+    state.selection.segments = new Set(state.segments.map((segment) => segment.id));
+    state.selection.polygons = new Set(state.polygons.map((polygon) => polygon.id));
+    state.selection.texts = new Set(state.texts.map((text) => text.id));
+    render();
+    setStatus(`Selected all: ${getSelectionSummary()}`);
+    return;
+  }
+
   const modeShortcuts = {
     "1": "select",
     "2": "box-select",
@@ -1602,17 +1818,45 @@ function handleKeyDown(event) {
     return;
   }
 
-  const step = event.shiftKey ? 0.5 : 0.2;
-  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && state.selection.points.size > 0) {
+  const step = event.shiftKey ? 1 : event.altKey ? 0.05 : 0.2;
+  const selectedPointIds = getSelectedPointIds();
+  if (
+    state.mode === "select" &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) &&
+    (selectedPointIds.size > 0 || state.selection.texts.size > 0)
+  ) {
     event.preventDefault();
     const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
     const dy = event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
-    for (const pointId of state.selection.points) {
+    for (const pointId of selectedPointIds) {
       movePoint(pointId, dx, dy);
+    }
+    for (const textId of state.selection.texts) {
+      const text = getTextById(textId);
+      if (!text) {
+        continue;
+      }
+      text.x = round2(text.x + dx);
+      text.y = round2(text.y + dy);
     }
     pushHistory();
     render();
   }
+}
+
+function handleDoubleClick(event) {
+  const screen = getScreenPointFromEvent(event);
+  const hitText = hitTestText(screen);
+  if (!hitText) {
+    return;
+  }
+
+  openInlineTextEditor(screen, {
+    textId: hitText.id,
+    world: { x: hitText.x, y: hitText.y },
+    initialValue: hitText.content,
+  });
+  setStatus("Editing text. Press Enter to save.");
 }
 
 function wireEvents() {
@@ -1634,6 +1878,7 @@ function wireEvents() {
   ui.exportJsonBtn.addEventListener("click", exportJson);
   ui.exportSvgBtn.addEventListener("click", exportSvg);
   ui.importBtn.addEventListener("click", () => ui.importFile.click());
+  ui.themeToggleBtn.addEventListener("click", toggleTheme);
   ui.importFile.addEventListener("change", handleImport);
 
   ui.settingsBtn.addEventListener("click", () => {
@@ -1650,10 +1895,12 @@ function wireEvents() {
   ui.graph.addEventListener("pointerdown", handlePointerDown);
   ui.graph.addEventListener("pointermove", handlePointerMove);
   ui.graph.addEventListener("pointerup", handlePointerUp);
+  ui.graph.addEventListener("dblclick", handleDoubleClick);
   ui.graph.addEventListener("pointerleave", () => {
     if (!state.drag) {
       state.hoverWorld = null;
       state.hoverScreen = null;
+      state.midpointHoverWorld = null;
       render();
     }
   });
@@ -1668,6 +1915,10 @@ function wireEvents() {
     hideContextMenu();
     showPointListDialog();
   });
+  ui.joinPointsBtn.addEventListener("click", () => {
+    hideContextMenu();
+    joinSelectedPoints();
+  });
 
   ui.copyPointsBtn.addEventListener("click", async () => {
     ui.pointsOutput.select();
@@ -1680,17 +1931,32 @@ function wireEvents() {
     }
   });
 
-  window.addEventListener("click", (event) => {
+  globalThis.addEventListener("click", (event) => {
     if (event.target !== ui.contextMenu && !ui.contextMenu.contains(event.target)) {
       hideContextMenu();
     }
   });
 
-  window.addEventListener("keydown", handleKeyDown);
-  window.addEventListener("resize", render);
+  globalThis.addEventListener("keydown", handleKeyDown);
+  globalThis.addEventListener("resize", render);
+
+  ui.inlineTextEditor.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      closeInlineTextEditor(true, state.mode === "text");
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeInlineTextEditor(false, true);
+    }
+  });
+  ui.inlineTextEditor.addEventListener("blur", () => {
+    closeInlineTextEditor(true, false);
+  });
 }
 
 function bootstrap() {
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  applyTheme(savedTheme === "dark" ? "dark" : "light");
   ui.versionBadge.textContent = `v${VERSION}`;
   initializeDemoGeometry();
   wireEvents();
