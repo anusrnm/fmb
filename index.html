@@ -4,14 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FMB Generator</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <button id="theme-toggle" type="button" aria-label="Toggle dark theme">🌙 Dark</button>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="sidebar-top">
-          <p class="eyebrow">FMB web app</p>
+          <div class="sidebar-heading">
+            <p class="eyebrow">FMB web app</p>
+            <button id="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme">🌙</button>
+          </div>
           <p class="subtitle">
             Enter point coordinates in a natural format, inspect the plot, and calculate
             property area in multiple units.
@@ -20,6 +23,7 @@
 
         <div class="action-row">
           <button id="add-text-btn" type="button">Add text</button>
+          <button id="move-graph-btn" type="button" aria-pressed="false">Move graph</button>
         </div>
 
         <div class="compact-row">
@@ -95,6 +99,6 @@
       </main>
     </div>
 
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./app.js?v=theme-icon"></script>
   </body>
 </html>

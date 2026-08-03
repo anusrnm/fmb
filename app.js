@@ -14,7 +14,7 @@ const defaultJoins = "";
 const CANVAS_EDIT_DECIMALS = 2;
 const POINT_HIT_RADIUS_PX = 12;
 const KEYBOARD_NUDGE_DEFAULT = 0.5;
-const KEYBOARD_NUDGE_FINE = 0.1;
+const KEYBOARD_NUDGE_FINE = 0.01;
 const KEYBOARD_NUDGE_COARSE = 2;
 
 const interactionState = {
@@ -29,6 +29,9 @@ const interactionState = {
   selectedAnnotationIndex: -1,
   draggingAnnotationIndex: -1,
   annotationDragOffset: null,
+  panEnabled: false,
+  panningGraph: false,
+  panStart: null,
   hoverPointIndex: -1,
   hoverSegmentActive: false,
   dragPoints: null,
@@ -619,6 +622,15 @@ function redoPointsChange() {
   updateHistoryButtons();
 }
 
+// Returns a grid step that gives ~targetCount lines over span, snapped to 1/2/5 multiples.
+function niceStep(span, targetCount) {
+  const raw = span / targetCount;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+  const normalized = raw / magnitude;
+  const nice = normalized < 1.5 ? 1 : normalized < 3.5 ? 2 : normalized < 7.5 ? 5 : 10;
+  return nice * magnitude;
+}
+
 function createPlotSpace(points, joins, width, height, margin, options = {}) {
   const bounds = options.bounds || null;
   const expandForEditing = Boolean(options.expandForEditing);
@@ -761,6 +773,8 @@ function setPlotInteractionClasses() {
 
   plot.classList.add("edit-enabled");
   plot.classList.toggle("dragging-point", interactionState.draggingPointIndex >= 0);
+  plot.classList.toggle("pan-enabled", interactionState.panEnabled);
+  plot.classList.toggle("panning-graph", interactionState.panningGraph);
   plot.classList.toggle(
     "hover-point",
     interactionState.hoverPointIndex >= 0 && interactionState.draggingPointIndex < 0,
@@ -769,6 +783,65 @@ function setPlotInteractionClasses() {
     "hover-segment",
     interactionState.hoverPointIndex < 0 && interactionState.hoverSegmentActive && interactionState.draggingPointIndex < 0,
   );
+}
+
+function setPanEnabled(enabled) {
+  interactionState.panEnabled = enabled;
+  const moveGraphBtn = document.getElementById("move-graph-btn");
+  if (moveGraphBtn) {
+    moveGraphBtn.setAttribute("aria-pressed", String(enabled));
+  }
+  setPlotInteractionClasses();
+  setStatus(enabled ? "Move graph mode enabled. Drag the plot to pan it." : "Move graph mode disabled.");
+}
+
+function beginGraphPan(event, plot, model) {
+  const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+  const bounds = interactionState.viewportBounds ?? {
+    minX: model.plotSpace.minX,
+    maxX: model.plotSpace.maxX,
+    minY: model.plotSpace.minY,
+    maxY: model.plotSpace.maxY,
+  };
+  interactionState.panningGraph = true;
+  interactionState.panStart = { svgPoint, bounds };
+  plot.setPointerCapture(event.pointerId);
+  plot.focus({ preventScroll: true });
+  setPlotInteractionClasses();
+}
+
+function updateGraphPan(event, plot) {
+  const panStart = interactionState.panStart;
+  if (!panStart) {
+    return;
+  }
+  const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+  const deltaX = svgPoint.x - panStart.svgPoint.x;
+  const deltaY = svgPoint.y - panStart.svgPoint.y;
+  const width = 800 - 70 * 2;
+  const height = 500 - 70 * 2;
+  const xSpan = panStart.bounds.maxX - panStart.bounds.minX;
+  const ySpan = panStart.bounds.maxY - panStart.bounds.minY;
+  const shiftX = (deltaX / width) * xSpan;
+  const shiftY = (deltaY / height) * ySpan;
+  interactionState.viewportBounds = {
+    minX: panStart.bounds.minX - shiftX,
+    maxX: panStart.bounds.maxX - shiftX,
+    minY: panStart.bounds.minY + shiftY,
+    maxY: panStart.bounds.maxY + shiftY,
+  };
+  render();
+}
+
+function endGraphPan(event) {
+  const plot = event.currentTarget;
+  interactionState.panningGraph = false;
+  interactionState.panStart = null;
+  if (plot?.hasPointerCapture(event.pointerId)) {
+    plot.releasePointerCapture(event.pointerId);
+  }
+  setPlotInteractionClasses();
+  setStatus("Graph moved.");
 }
 
 function clearHoverState() {
@@ -785,11 +858,18 @@ function getViewportBounds(points, joins) {
     expandForEditing: false,
   });
 
+  // Seed with the same padding growViewportToIncludePoints uses so the first
+  // pointer-up does not trigger a zoom-out to fit padding.
+  const xSpan = plotSpace.maxX - plotSpace.minX;
+  const ySpan = plotSpace.maxY - plotSpace.minY;
+  const padX = Math.max(xSpan * 0.05, 1);
+  const padY = Math.max(ySpan * 0.05, 1);
+
   return {
-    minX: plotSpace.minX,
-    maxX: plotSpace.maxX,
-    minY: plotSpace.minY,
-    maxY: plotSpace.maxY,
+    minX: plotSpace.minX - padX,
+    maxX: plotSpace.maxX + padX,
+    minY: plotSpace.minY - padY,
+    maxY: plotSpace.maxY + padY,
   };
 }
 
@@ -915,6 +995,13 @@ function insertPointOnNearestSegment(segmentMatch) {
 }
 
 function handlePlotPointerDown(event) {
+  const panPlot = event.currentTarget;
+  const panModel = interactionState.renderModel;
+  if ((interactionState.panEnabled || event.button === 1) && panPlot && panModel) {
+    event.preventDefault();
+    beginGraphPan(event, panPlot, panModel);
+    return;
+  }
   const annotationIndex = getAnnotationIndexFromTarget(event.target);
   if (Number.isInteger(annotationIndex) && annotationIndex >= 0 && annotationIndex < interactionState.annotations.length) {
     interactionState.selectedAnnotationIndex = annotationIndex;
@@ -1004,6 +1091,10 @@ function handlePlotPointerMove(event) {
   }
 
   const svgPoint = getSvgCoordinatesFromEvent(event, plot);
+  if (interactionState.panningGraph) {
+    updateGraphPan(event, plot);
+    return;
+  }
   if (interactionState.draggingAnnotationIndex >= 0) {
     updateSelectedAnnotationPosition(svgPoint);
     return;
@@ -1043,6 +1134,10 @@ function handlePlotPointerMove(event) {
 }
 
 function handlePlotPointerUp(event) {
+  if (interactionState.panningGraph) {
+    endGraphPan(event);
+    return;
+  }
   if (interactionState.draggingAnnotationIndex >= 0) {
     const plot = event.currentTarget;
     interactionState.draggingAnnotationIndex = -1;
@@ -1083,7 +1178,7 @@ function handlePlotPointerUp(event) {
 }
 
 function handlePlotPointerLeave() {
-  if (interactionState.draggingPointIndex >= 0) {
+  if (interactionState.draggingPointIndex >= 0 || interactionState.panningGraph) {
     return;
   }
 
@@ -1295,11 +1390,24 @@ function buildPlot(points, joins, showPoints, showGridlines, showLabels, showAng
   const parts = [];
   parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="${colors.plotBg}" stroke="${colors.plotBorder}" stroke-width="1" rx="20" ry="20" />`);
 
+  const xStep = niceStep(xSpan, 6);
+  const yStep = niceStep(ySpan, 5);
+  const xGridValues = [];
+  const yGridValues = [];
+  for (let v = Math.ceil(minX / xStep) * xStep; v <= maxX + xStep * 0.001; v += xStep) {
+    xGridValues.push(Math.round(v / xStep) * xStep);
+  }
+  for (let v = Math.ceil(minY / yStep) * yStep; v <= maxY + yStep * 0.001; v += yStep) {
+    yGridValues.push(Math.round(v / yStep) * yStep);
+  }
+
   if (showGridlines) {
-    for (let step = 0; step <= 5; step += 1) {
-      const x = margin + (step / 5) * (width - margin * 2);
-      const y = margin + (step / 5) * (height - margin * 2);
+    for (const v of xGridValues) {
+      const x = xToPx(v);
       parts.push(`<line x1="${x}" y1="${margin}" x2="${x}" y2="${height - margin}" stroke="${colors.plotGrid}" stroke-opacity="0.95" stroke-width="1.4" stroke-dasharray="4 3" shape-rendering="crispEdges" />`);
+    }
+    for (const v of yGridValues) {
+      const y = yToPx(v);
       parts.push(`<line x1="${margin}" y1="${y}" x2="${width - margin}" y2="${y}" stroke="${colors.plotGrid}" stroke-opacity="0.95" stroke-width="1.4" stroke-dasharray="4 3" shape-rendering="crispEdges" />`);
     }
   }
@@ -1311,25 +1419,23 @@ function buildPlot(points, joins, showPoints, showGridlines, showLabels, showAng
     parts.push(`<text x="${yAxisX - 12}" y="${height / 2}" text-anchor="end" transform="rotate(-90 ${yAxisX - 12} ${height / 2})" font-size="16" font-weight="700" fill="${colors.plotAxisText}" fill-opacity="0.18" letter-spacing="0.14em">Y Axis</text>`);
   }
 
-  for (let step = 0; step <= 5; step += 1) {
-    const x = margin + (step / 5) * (width - margin * 2);
-    const value = minX + (step / 5) * xSpan;
-    const tickDirection = xAxisY > height / 2 ? 8 : -8;
-    const labelOffset = xAxisY > height / 2 ? 24 : -10;
-    parts.push(`<line x1="${x}" y1="${xAxisY}" x2="${x}" y2="${xAxisY + tickDirection}" stroke="#374151" stroke-width="1" shape-rendering="crispEdges" />`);
+  const tickDirectionX = xAxisY > height / 2 ? 8 : -8;
+  const labelOffsetX = xAxisY > height / 2 ? 24 : -10;
+  for (const v of xGridValues) {
+    const x = xToPx(v);
+    parts.push(`<line x1="${x}" y1="${xAxisY}" x2="${x}" y2="${xAxisY + tickDirectionX}" stroke="#374151" stroke-width="1" shape-rendering="crispEdges" />`);
     if (showLabels) {
-      parts.push(`<text x="${x}" y="${xAxisY + labelOffset}" text-anchor="middle" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+      parts.push(`<text x="${x}" y="${xAxisY + labelOffsetX}" text-anchor="middle" font-size="10" fill="#475569">${v.toFixed(0)}</text>`);
     }
   }
 
-  for (let step = 0; step <= 5; step += 1) {
-    const y = margin + (step / 5) * (height - margin * 2);
-    const value = maxY - (step / 5) * ySpan;
-    const tickDirection = yAxisX > width / 2 ? -8 : 8;
-    const labelX = yAxisX - 12;
-    parts.push(`<line x1="${yAxisX}" y1="${y}" x2="${yAxisX + tickDirection}" y2="${y}" stroke="#374151" stroke-width="1" shape-rendering="crispEdges" />`);
+  const tickDirectionY = yAxisX > width / 2 ? -8 : 8;
+  const labelX = yAxisX - 12;
+  for (const v of yGridValues) {
+    const y = yToPx(v);
+    parts.push(`<line x1="${yAxisX}" y1="${y}" x2="${yAxisX + tickDirectionY}" y2="${y}" stroke="#374151" stroke-width="1" shape-rendering="crispEdges" />`);
     if (showLabels) {
-      parts.push(`<text x="${labelX}" y="${y + 3}" text-anchor="end" font-size="10" fill="#475569">${value.toFixed(0)}</text>`);
+      parts.push(`<text x="${labelX}" y="${y + 3}" text-anchor="end" font-size="10" fill="#475569">${v.toFixed(0)}</text>`);
     }
   }
 
@@ -1681,8 +1787,9 @@ function applyTheme(theme) {
 
   root.dataset.theme = theme;
   if (themeToggle) {
-    themeToggle.textContent = theme === "dark" ? "☀️ Light" : "🌙 Dark";
+    themeToggle.textContent = theme === "dark" ? "☀" : "☾";
     themeToggle.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} theme`);
+    themeToggle.title = `Switch to ${theme === "dark" ? "light" : "dark"} theme`;
   }
 }
 
@@ -1754,6 +1861,7 @@ function initialize() {
   const showAngleArcs = document.getElementById("show-angle-arcs");
   const showSegments = document.getElementById("show-segments");
   const addTextBtn = document.getElementById("add-text-btn");
+  const moveGraphBtn = document.getElementById("move-graph-btn");
   const textSize = document.getElementById("text-size");
   const textSizeValue = document.getElementById("text-size-value");
   const createSegmentBtn = document.getElementById("create-segment-btn");
@@ -1805,6 +1913,7 @@ function initialize() {
     render();
   });
   addTextBtn.addEventListener("click", addTextAnnotation);
+  moveGraphBtn.addEventListener("click", () => setPanEnabled(!interactionState.panEnabled));
   textSize.addEventListener("input", () => {
     const size = Number(textSize.value);
     textSizeValue.value = `${size} px`;
