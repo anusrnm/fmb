@@ -158,17 +158,18 @@
     </div>
 
     <div id="context-menu" class="context-menu" hidden>
-      <button id="view-points-btn" type="button">View / Copy Coordinates</button>
+      <button id="view-points-btn" type="button">Coordinates</button>
       <button id="join-points-btn" type="button">Join Selected Points</button>
     </div>
 
     <dialog id="points-dialog" class="points-dialog">
       <form method="dialog">
-        <h3>Diagram Coordinates</h3>
-        <p>Right click anywhere on the graph to open this list quickly.</p>
-        <textarea id="points-output" rows="12" readonly></textarea>
+        <h3>Coordinates</h3>
+        <p>Edit existing coordinates or paste new ones as <code>label, x, y</code> or <code>x, y</code> (one point per line).</p>
+        <textarea id="points-output" rows="12"></textarea>
         <div class="dialog-actions">
           <button id="copy-points-btn" value="copy" type="button">Copy</button>
+          <button id="draw-points-btn" value="draw" type="button">Draw Shape</button>
           <button value="close" type="submit">Close</button>
         </div>
       </form>

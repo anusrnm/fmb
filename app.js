@@ -1,4 +1,4 @@
-const VERSION = "2.3.1";
+const VERSION = "2.4.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -98,6 +98,7 @@ const ui = {
   pointsDialog: document.getElementById("points-dialog"),
   pointsOutput: document.getElementById("points-output"),
   copyPointsBtn: document.getElementById("copy-points-btn"),
+  drawPointsBtn: document.getElementById("draw-points-btn"),
   inlineTextEditor: document.getElementById("inline-text-editor"),
 };
 
@@ -1276,6 +1277,7 @@ function drawGrid(parentGroup) {
 }
 
 function render() {
+  updateZoomResetButton();
   const rect = getRect();
   ui.graph.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
   ui.graph.replaceChildren();
@@ -1318,7 +1320,6 @@ function render() {
     const centroid = points.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
     centroid.x /= points.length;
     centroid.y /= points.length;
-    const centroidScreen = worldToScreen(centroid);
     const labelOriginScreen = worldToScreen({
       x: centroid.x + (polygon.labelOffset?.x ?? 0),
       y: centroid.y + (polygon.labelOffset?.y ?? 0),
@@ -2172,6 +2173,22 @@ function resetZoomAndPan() {
   setStatus("Zoom and pan reset.");
 }
 
+function zoomPercentText() {
+  const percent = (state.scale / 32) * 100;
+  const rounded = Math.round(percent * 10) / 10;
+  const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return `${display}%`;
+}
+
+function updateZoomResetButton() {
+  const icon = ui.zoomResetBtn.querySelector(".icon");
+  const label = zoomPercentText();
+  if (icon) {
+    icon.textContent = label;
+  }
+  ui.zoomResetBtn.title = `Reset zoom and position (${label})`;
+}
+
 function pointsToCoordinateList() {
   const selectedPoints = getOrderedSelectedPoints();
   const points = selectedPoints.length > 0
@@ -2185,9 +2202,146 @@ function pointsToCoordinateList() {
   return points.map((point) => `${point.label}, ${round2(point.x)}, ${round2(point.y)}`).join("\n");
 }
 
-function showPointListDialog() {
-  ui.pointsOutput.value = pointsToCoordinateList();
+function showPointListDialog(content = pointsToCoordinateList()) {
+  ui.pointsOutput.value = content;
   ui.pointsDialog.showModal();
+  ui.pointsOutput.focus();
+  ui.pointsOutput.setSelectionRange(0, 0);
+}
+
+function parseCoordinatesText(text) {
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const parsed = [];
+  for (const row of rows) {
+    const commaParts = row.split(",").map((part) => part.trim()).filter(Boolean);
+    let label = "";
+    let xToken = "";
+    let yToken = "";
+
+    if (commaParts.length >= 3) {
+      [label, xToken, yToken] = commaParts;
+    } else if (commaParts.length === 2) {
+      [xToken, yToken] = commaParts;
+    } else {
+      const numberTokens = row.match(/-?\d+(?:\.\d+)?/g);
+      if (!numberTokens || numberTokens.length < 2) {
+        throw new Error(`Could not read coordinates from line: "${row}"`);
+      }
+      xToken = numberTokens[0];
+      yToken = numberTokens[1];
+    }
+
+    const x = Number(xToken);
+    const y = Number(yToken);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error(`Invalid numeric coordinates in line: "${row}"`);
+    }
+
+    parsed.push({ label, x, y });
+  }
+
+  return parsed;
+}
+
+function normalizeCoordinateLoop(points) {
+  if (points.length < 4) {
+    return points;
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const samePosition = Math.abs(first.x - last.x) < 1e-9 && Math.abs(first.y - last.y) < 1e-9;
+  return samePosition ? points.slice(0, -1) : points;
+}
+
+function pointIsUsedOutsidePolygon(pointId, polygonId) {
+  if (state.segments.some((segment) => segment.a === pointId || segment.b === pointId)) {
+    return true;
+  }
+
+  if (state.angleAnnotations.some((item) => item.vertexId === pointId || item.aId === pointId || item.bId === pointId)) {
+    return true;
+  }
+
+  return state.polygons.some((polygon) => polygon.id !== polygonId && polygon.pointIds.includes(pointId));
+}
+
+function drawShapeFromCoordinateInput() {
+  let parsed;
+  try {
+    parsed = parseCoordinatesText(ui.pointsOutput.value);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Could not parse coordinates.");
+    return;
+  }
+
+  parsed = normalizeCoordinateLoop(parsed);
+
+  if (parsed.length < 3) {
+    setStatus("Enter at least three coordinate rows to draw a shape.");
+    return;
+  }
+
+  const selectedPolygonIds = [...state.selection.polygons];
+  if (selectedPolygonIds.length > 1) {
+    setStatus("Select only one shape to update, or clear selection to create a new one.");
+    return;
+  }
+
+  if (selectedPolygonIds.length === 1) {
+    const polygon = getPolygonById(selectedPolygonIds[0]);
+    if (!polygon) {
+      setStatus("Selected shape no longer exists.");
+      return;
+    }
+
+    const previousPointIds = [...polygon.pointIds];
+    const nextPointIds = [];
+    for (const item of parsed) {
+      const point = addPoint(item.x, item.y, item.label ? { label: item.label } : {});
+      nextPointIds.push(point.id);
+    }
+
+    polygon.pointIds = nextPointIds;
+
+    for (const pointId of previousPointIds) {
+      if (!pointIsUsedOutsidePolygon(pointId, polygon.id)) {
+        removePoint(pointId);
+      }
+    }
+
+    clearSelection();
+    state.selection.polygons.add(polygon.id);
+    normalizeGeometry();
+    pushHistory();
+    render();
+    ui.pointsDialog.close();
+    setStatus(`Updated selected shape with ${nextPointIds.length} coordinates.`);
+    return;
+  }
+
+  const pointIds = [];
+  for (const item of parsed) {
+    const point = addPoint(item.x, item.y, item.label ? { label: item.label } : {});
+    pointIds.push(point.id);
+  }
+
+  const polygon = addPolygon(pointIds);
+  if (!polygon) {
+    setStatus("Could not create shape from provided coordinates.");
+    return;
+  }
+
+  clearSelection();
+  state.selection.polygons.add(polygon.id);
+  pushHistory();
+  render();
+  ui.pointsDialog.close();
+  setStatus(`Shape created from ${pointIds.length} coordinates.`);
 }
 
 function hideContextMenu() {
@@ -2423,16 +2577,28 @@ function handleKeyDown(event) {
 function handleDoubleClick(event) {
   const screen = getScreenPointFromEvent(event);
   const hitText = hitTestText(screen);
-  if (!hitText) {
+  if (hitText) {
+    openInlineTextEditor(screen, {
+      textId: hitText.id,
+      world: { x: hitText.x, y: hitText.y },
+      initialValue: hitText.content,
+    });
+    setStatus("Editing text. Press Enter to save.");
     return;
   }
 
-  openInlineTextEditor(screen, {
-    textId: hitText.id,
-    world: { x: hitText.x, y: hitText.y },
-    initialValue: hitText.content,
-  });
-  setStatus("Editing text. Press Enter to save.");
+  const world = screenToWorld(screen);
+  const edgePick = findNearestEdge(world);
+  if (!edgePick) {
+    return;
+  }
+
+  const inserted = insertPointOnEdge(edgePick, edgePick.projection.point);
+  clearSelection();
+  state.selection.points.add(inserted.id);
+  pushHistory();
+  render();
+  setStatus(`Point inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`);
 }
 
 function wireEvents() {
@@ -2518,12 +2684,25 @@ function wireEvents() {
 
   ui.graph.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    const screen = getScreenPointFromEvent(event);
+    const isEmptyArea =
+      !hitTestPoint(screen) &&
+      !hitTestText(screen) &&
+      !hitTestSegment(screen) &&
+      !hitTestPolygonLabel(screen) &&
+      !hitTestPolygon(screen);
+    ui.viewPointsBtn.dataset.context = isEmptyArea ? "empty" : "objects";
     showContextMenu(event.clientX, event.clientY);
   });
 
   ui.viewPointsBtn.addEventListener("click", () => {
     hideContextMenu();
-    showPointListDialog();
+    if (ui.viewPointsBtn.dataset.context === "empty") {
+      showPointListDialog("A, 0, 0\nB, 5, 0\nC, 4, 3\nD, 1, 4");
+      setStatus("Enter coordinates and choose Draw Shape.");
+      return;
+    }
+    showPointListDialog(pointsToCoordinateList());
   });
   ui.joinPointsBtn.addEventListener("click", () => {
     hideContextMenu();
@@ -2539,6 +2718,10 @@ function wireEvents() {
       document.execCommand("copy");
       setStatus("Coordinates copied.");
     }
+  });
+
+  ui.drawPointsBtn.addEventListener("click", () => {
+    drawShapeFromCoordinateInput();
   });
 
   globalThis.addEventListener("click", (event) => {
