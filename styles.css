@@ -30,6 +30,15 @@
   --status-bg: rgba(255, 255, 255, 0.86);
   --status-border: rgba(15, 118, 110, 0.2);
   --text-halo: #ffffff;
+  --segment-length-color: #556471;
+  --segment-length-halo: #ffffff;
+  --area-metric-color: #556471;
+  --area-metric-halo: #ffffff;
+  --point-label-color: #556471;
+  --user-text-color: #1f2a32;
+  --user-text-selected-color: #b45309;
+  --angle-label-pinned-color: #0f766e;
+  --angle-label-preview-color: rgba(15, 118, 110, 0.8);
 }
 
 :root[data-theme="dark"] {
@@ -57,6 +66,15 @@
   --status-bg: rgba(18, 29, 39, 0.9);
   --status-border: rgba(76, 212, 202, 0.24);
   --text-halo: #0f1b26;
+  --segment-length-color: #9ab0c1;
+  --segment-length-halo: #0f1b26;
+  --area-metric-color: #9ab0c1;
+  --area-metric-halo: #0f1b26;
+  --point-label-color: #9ab0c1;
+  --user-text-color: #e6edf3;
+  --user-text-selected-color: #f59e0b;
+  --angle-label-pinned-color: #4cd4ca;
+  --angle-label-preview-color: rgba(76, 212, 202, 0.86);
 }
 
 * {
@@ -342,6 +360,86 @@ svg.mode-select {
 
 svg.mode-box-select {
   cursor: crosshair;
+}
+
+svg text.grid-value-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--grid-value);
+}
+
+svg text.point-label-text {
+  font-size: 11px;
+  fill: var(--point-label-color);
+  font-weight: 500;
+}
+
+svg text.point-label-selected {
+  font-weight: 700;
+}
+
+svg text.area-metric-text {
+  font-family: var(--font-mono);
+  text-anchor: middle;
+  font-size: 12px;
+  fill: var(--area-metric-color);
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--area-metric-halo);
+  stroke-width: 3;
+  stroke-opacity: 0.7;
+}
+
+svg text.area-metric-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+svg text.segment-length-text {
+  font-family: var(--font-mono);
+  text-anchor: middle;
+  font-size: 12px;
+  fill: var(--segment-length-color);
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--segment-length-halo);
+  stroke-width: 3;
+  stroke-opacity: 0.68;
+}
+
+svg text.user-text {
+  font-family: var(--font-sans);
+  text-anchor: middle;
+  fill: var(--user-text-color);
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: var(--text-halo);
+  stroke-width: 4;
+  stroke-opacity: 0.9;
+}
+
+svg text.user-text-selected {
+  fill: var(--user-text-selected-color);
+  font-weight: 700;
+}
+
+svg text.angle-label-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-anchor: middle;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--text-halo);
+  stroke-width: 3;
+  stroke-opacity: 0.7;
+}
+
+svg text.angle-label-pinned {
+  fill: var(--angle-label-pinned-color);
+}
+
+svg text.angle-label-preview {
+  fill: var(--angle-label-preview-color);
 }
 
 .status-pill {
@@ -649,22 +747,23 @@ svg.mode-box-select {
 }
 
 @media (max-width: 640px) {
-  svg text.user-text,
-  svg text.area-metric-text {
+  svg text.segment-length-text {
+    font-size: 13px;
+    stroke-width: 2.4;
+    stroke-opacity: 0.7;
+  }
+
+  svg text.user-text {
     font-size: max(13px, 0.86rem);
-    font-weight: 700;
-    fill: var(--ink) !important;
-    stroke: var(--text-halo) !important;
-    stroke-width: 4.5;
-    stroke-opacity: 0.98;
-    paint-order: stroke;
     letter-spacing: 0.01em;
   }
 
-  :root[data-theme="dark"] svg text.user-text,
-  :root[data-theme="dark"] svg text.area-metric-text {
-    fill: #f3fbff !important;
-    stroke: rgba(8, 16, 24, 0.96) !important;
+  svg text.area-metric-text {
+    font-size: max(14px, 0.94rem);
+    font-weight: 600;
+    stroke-width: 2.2;
+    stroke-opacity: 0.72;
+    letter-spacing: 0.01em;
   }
 
   .topbar {

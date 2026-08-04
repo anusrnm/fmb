@@ -1,4 +1,4 @@
-const VERSION = "2.4.1";
+const VERSION = "2.4.2";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -1194,7 +1194,6 @@ function drawGrid(parentGroup) {
   const minorColor = getCssVar("--grid-minor", "#dce6ec");
   const majorColor = getCssVar("--grid-major", "#b0c3cd");
   const axisColor = getCssVar("--grid-axis", "#6b7f8d");
-  const valueColor = getCssVar("--grid-value", "#53657b");
 
   const minWorld = screenToWorld({ x: 0, y: rect.height });
   const maxWorld = screenToWorld({ x: rect.width, y: 0 });
@@ -1225,8 +1224,7 @@ function drawGrid(parentGroup) {
 
     if (isMajor && state.display.showGridValues && Math.abs(x) > 1e-8) {
       const label = makeText(screenA.x + 2, worldToScreen({ x, y: 0 }).y - 4, String(round2(x)), {
-        "font-size": 10,
-        fill: valueColor,
+        class: "grid-value-text",
       });
       valuesGroup.append(label);
     }
@@ -1248,8 +1246,7 @@ function drawGrid(parentGroup) {
 
     if (isMajor && state.display.showGridValues && Math.abs(y) > 1e-8) {
       const label = makeText(worldToScreen({ x: 0, y }).x + 4, screenA.y - 2, String(round2(y)), {
-        "font-size": 10,
-        fill: valueColor,
+        class: "grid-value-text",
       });
       valuesGroup.append(label);
     }
@@ -1330,16 +1327,8 @@ function render() {
     const showPerimeter = state.display.showLabels && state.display.showPolygons;
     const showAreaMetrics = state.display.showLabels && state.display.showPolygons && bboxArea > 42000;
     if (showPerimeter) {
-      const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 56, `Perimeter: ${round2(perimeter)} m`, {
-        class: "area-metric-text",
-        "text-anchor": "middle",
-        "font-size": 11,
-        fill: getCssVar("--ink-muted", "#0f4f4a"),
-        "font-weight": 700,
-        "paint-order": "stroke",
-        stroke: getCssVar("--text-halo", "#ffffff"),
-        "stroke-width": 3,
-        "stroke-opacity": 0.7,
+      const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 64, `Perimeter: ${round2(perimeter)} m`, {
+        class: "area-metric-text area-metric-title",
       });
       labelsGroup.append(title);
     }
@@ -1355,16 +1344,8 @@ function render() {
       ];
       for (let i = 0; i < areaLines.length; i += 1) {
         labelsGroup.append(
-          makeText(labelOriginScreen.x, labelOriginScreen.y - 40 + i * 12, areaLines[i], {
+          makeText(labelOriginScreen.x, labelOriginScreen.y - 46 + i * 15, areaLines[i], {
             class: "area-metric-text",
-            "text-anchor": "middle",
-            "font-size": 10,
-            fill: getCssVar("--ink-muted", "#0f4f4a"),
-            "font-weight": 600,
-            "paint-order": "stroke",
-            stroke: getCssVar("--text-halo", "#ffffff"),
-            "stroke-width": 3,
-            "stroke-opacity": 0.7,
           })
         );
       }
@@ -1381,14 +1362,7 @@ function render() {
         const edgeLength = distanceWorld(aPoint, bPoint);
         labelsGroup.append(
           makeText(midpoint.x, midpoint.y - 5, `${round2(edgeLength)} m`, {
-            "text-anchor": "middle",
-            "font-size": 10,
-            fill: getCssVar("--ink-muted", "#556471"),
-            "font-weight": 600,
-            "paint-order": "stroke",
-            stroke: getCssVar("--text-halo", "#ffffff"),
-            "stroke-width": 3,
-            "stroke-opacity": 0.7,
+            class: "segment-length-text",
           })
         );
       }
@@ -1457,14 +1431,7 @@ function render() {
       const length = distanceWorld(a, b);
       labelsGroup.append(
         makeText(midpoint.x, midpoint.y - 6, `${round2(length)} m`, {
-          "text-anchor": "middle",
-          "font-size": 10,
-          fill: getCssVar("--ink-muted", "#556471"),
-          "font-weight": 600,
-          "paint-order": "stroke",
-          stroke: getCssVar("--text-halo", "#ffffff"),
-          "stroke-width": 3,
-          "stroke-opacity": 0.65,
+          class: "segment-length-text",
         })
       );
     }
@@ -1485,9 +1452,7 @@ function render() {
     if (state.display.showLabels) {
       labelsGroup.append(
         makeText(screenPoint.x + 8, screenPoint.y - 8, `${point.label} (${round2(point.x)}, ${round2(point.y)})`, {
-          "font-size": 11,
-          fill: getCssVar("--ink-muted", "#334155"),
-          "font-weight": selected ? 700 : 500,
+          class: selected ? "point-label-text point-label-selected" : "point-label-text",
         })
       );
     }
@@ -1499,15 +1464,8 @@ function render() {
       const selected = state.selection.texts.has(text.id);
       labelsGroup.append(
         makeText(screenPoint.x, screenPoint.y, text.content, {
-          class: "user-text",
+          class: selected ? "user-text user-text-selected" : "user-text",
           "font-size": text.size,
-          "text-anchor": "middle",
-          fill: selected ? "#b45309" : getCssVar("--ink", "#1f2937"),
-          "font-weight": selected ? 700 : 500,
-          "paint-order": "stroke",
-          stroke: getCssVar("--text-halo", "#ffffff"),
-          "stroke-width": 4,
-          "stroke-opacity": 0.9,
         })
       );
     }
@@ -1576,14 +1534,7 @@ function render() {
 
       labelsGroup.append(
         makeText(arc.labelPoint.x, arc.labelPoint.y, `${round2(candidate.angleDeg)}deg`, {
-          "font-size": 10,
-          "text-anchor": "middle",
-          fill: isPinned ? "#0f766e" : "rgba(15,118,110,0.8)",
-          "font-weight": 700,
-          "paint-order": "stroke",
-          stroke: getCssVar("--text-halo", "#ffffff"),
-          "stroke-width": 3,
-          "stroke-opacity": 0.7,
+          class: isPinned ? "angle-label-text angle-label-pinned" : "angle-label-text angle-label-preview",
         })
       );
     }
