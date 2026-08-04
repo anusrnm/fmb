@@ -1,4 +1,4 @@
-const VERSION = "2.3.0";
+const VERSION = "2.3.1";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -2438,6 +2438,22 @@ function handleDoubleClick(event) {
 function wireEvents() {
   for (const button of ui.modeButtons) {
     button.addEventListener("click", () => setMode(button.dataset.mode || "select"));
+  }
+
+  for (const group of ui.modeSelectGroups) {
+    group.addEventListener("click", (event) => {
+      // Let direct select interactions be handled by the native dropdown and change handler.
+      if (event.target instanceof HTMLSelectElement || event.target instanceof HTMLOptionElement) {
+        return;
+      }
+      const select = group.querySelector(".tool-select");
+      if (!(select instanceof HTMLSelectElement)) {
+        return;
+      }
+      if (MODES.includes(select.value)) {
+        setMode(select.value);
+      }
+    });
   }
 
   for (const select of ui.modeSelects) {
