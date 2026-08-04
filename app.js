@@ -1,4 +1,4 @@
-const VERSION = "2.4.0";
+const VERSION = "2.4.1";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -1331,6 +1331,7 @@ function render() {
     const showAreaMetrics = state.display.showLabels && state.display.showPolygons && bboxArea > 42000;
     if (showPerimeter) {
       const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 56, `Perimeter: ${round2(perimeter)} m`, {
+        class: "area-metric-text",
         "text-anchor": "middle",
         "font-size": 11,
         fill: getCssVar("--ink-muted", "#0f4f4a"),
@@ -1355,6 +1356,7 @@ function render() {
       for (let i = 0; i < areaLines.length; i += 1) {
         labelsGroup.append(
           makeText(labelOriginScreen.x, labelOriginScreen.y - 40 + i * 12, areaLines[i], {
+            class: "area-metric-text",
             "text-anchor": "middle",
             "font-size": 10,
             fill: getCssVar("--ink-muted", "#0f4f4a"),
@@ -1497,6 +1499,7 @@ function render() {
       const selected = state.selection.texts.has(text.id);
       labelsGroup.append(
         makeText(screenPoint.x, screenPoint.y, text.content, {
+          class: "user-text",
           "font-size": text.size,
           "text-anchor": "middle",
           fill: selected ? "#b45309" : getCssVar("--ink", "#1f2937"),

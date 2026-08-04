@@ -1,4 +1,6 @@
 :root {
+  --font-sans: "Space Grotesk", "Trebuchet MS", sans-serif;
+  --font-mono: "Space Mono", monospace;
   --bg-1: #f6efe2;
   --bg-2: #dcecf3;
   --bg-3: #f9fafb;
@@ -68,7 +70,7 @@ body {
 }
 
 body {
-  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-family: var(--font-sans);
   color: var(--ink);
   background:
     radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.2), transparent 36%),
@@ -120,11 +122,23 @@ body {
   letter-spacing: 0.03em;
 }
 
+.version-badge,
+.tool-select-wrap .icon,
+.tool-btn .icon,
+.icon-btn .icon,
+.points-dialog textarea {
+  font-family: var(--font-mono);
+}
+
+.tool-select,
+.inline-text-editor {
+  font-family: var(--font-sans);
+}
+
 .version-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: "IBM Plex Mono", monospace;
   font-size: 0.75rem;
   color: var(--brand-strong);
   background: rgba(15, 118, 110, 0.12);
@@ -192,7 +206,6 @@ body {
 }
 
 .tool-select-wrap .icon {
-  font-family: "IBM Plex Mono", monospace;
   font-size: 0.88rem;
   line-height: 1;
   color: var(--control-fg);
@@ -205,7 +218,6 @@ body {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.82);
   color: var(--control-fg);
-  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
   font-size: 0.72rem;
   font-weight: 600;
   height: 23px;
@@ -223,7 +235,6 @@ body {
 
 .tool-btn .icon,
 .icon-btn .icon {
-  font-family: "IBM Plex Mono", monospace;
   font-size: 1.02rem;
   line-height: 1;
   letter-spacing: 0.03em;
@@ -363,7 +374,6 @@ svg.mode-box-select {
   -webkit-text-fill-color: var(--ink);
   caret-color: var(--ink);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
-  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
   font-size: 14px;
   appearance: none;
   -webkit-appearance: none;
@@ -462,7 +472,6 @@ svg.mode-box-select {
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   padding: 10px;
-  font-family: "IBM Plex Mono", monospace;
   font-size: 0.84rem;
   resize: vertical;
 }
@@ -539,6 +548,7 @@ svg.mode-box-select {
   .topbar {
     grid-template-columns: auto 1fr auto;
     padding: 8px 10px;
+    overflow: visible;
   }
 
   .mobile-only {
@@ -549,37 +559,52 @@ svg.mode-box-select {
     position: absolute;
     left: 50%;
     transform: translateX(-50%) translateY(-8px);
-    top: 60px;
+    top: calc(100% + 8px);
     width: min(96vw, 760px);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    justify-content: stretch;
+    gap: 10px;
     border-radius: var(--radius-lg);
     background: var(--surface-strong);
     border: 1px solid rgba(85, 100, 113, 0.2);
     box-shadow: var(--shadow);
     padding: 10px;
+    max-height: min(60vh, 420px);
+    overflow-y: auto;
+    overflow-x: hidden;
     opacity: 0;
     pointer-events: none;
     transition: opacity 180ms ease, transform 180ms ease;
   }
 
   .tool-select-wrap {
-    min-width: 86px;
-    height: 50px;
-    padding: 5px 7px;
+    min-width: 0;
+    width: 100%;
+    height: 58px;
+    padding: 7px 8px;
   }
 
   .tool-select-wrap .icon {
-    font-size: 0.78rem;
+    font-size: 0.94rem;
   }
 
   .tool-select {
-    font-size: 0.67rem;
-    height: 21px;
+    font-size: 0.76rem;
+    height: 26px;
   }
 
   .tool-menu.open {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
     pointer-events: auto;
+  }
+
+  .tool-btn {
+    min-width: 0;
+    width: 100%;
+    height: 58px;
+    padding: 7px 8px;
   }
 
   .brand-wrap h1 {
@@ -596,12 +621,26 @@ svg.mode-box-select {
   }
 
   .icon-btn {
-    min-width: 38px;
-    height: 36px;
+    min-width: 42px;
+    height: 42px;
+    padding: 6px;
   }
 
   .icon-btn .icon {
-    font-size: 0.74rem;
+    font-size: 0.92rem;
+  }
+
+  .tool-btn .icon,
+  .tool-select-wrap .icon {
+    line-height: 1;
+  }
+
+  .tool-btn .icon {
+    font-size: 1.08rem;
+  }
+
+  .tool-btn .label {
+    font-size: 0.7rem;
   }
 
   .graph-panel {
@@ -610,43 +649,60 @@ svg.mode-box-select {
 }
 
 @media (max-width: 640px) {
+  svg text.user-text,
+  svg text.area-metric-text {
+    font-size: max(13px, 0.86rem);
+    font-weight: 700;
+    fill: var(--ink) !important;
+    stroke: var(--text-halo) !important;
+    stroke-width: 4.5;
+    stroke-opacity: 0.98;
+    paint-order: stroke;
+    letter-spacing: 0.01em;
+  }
+
+  :root[data-theme="dark"] svg text.user-text,
+  :root[data-theme="dark"] svg text.area-metric-text {
+    fill: #f3fbff !important;
+    stroke: rgba(8, 16, 24, 0.96) !important;
+  }
+
   .topbar {
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 6px;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
     padding: 8px;
-    overflow: hidden;
+    overflow: visible;
+  }
+
+  .topbar-left,
+  .topbar-right {
+    width: 100%;
   }
 
   .tool-menu {
-    top: 56px;
+    top: calc(100% + 8px);
+    width: min(96vw, 520px);
   }
 
   .topbar-right {
-    max-width: 46vw;
-    overflow-x: auto;
-    overflow-y: hidden;
-    justify-content: flex-start;
-    padding-bottom: 2px;
-    scrollbar-width: thin;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    max-width: none;
+    overflow: visible;
+    justify-content: stretch;
+    padding-bottom: 0;
   }
 
-  .topbar-right::-webkit-scrollbar {
-    height: 4px;
-  }
-
-  .topbar-right::-webkit-scrollbar-thumb {
-    background: rgba(15, 118, 110, 0.24);
-    border-radius: 999px;
-  }
-
-  .icon-btn {
-    min-width: 34px;
-    height: 32px;
-    padding: 4px 5px;
+  .topbar-right .icon-btn {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    padding: 5px;
   }
 
   .icon-btn .icon {
-    font-size: 0.68rem;
+    font-size: 0.88rem;
   }
 }
 
@@ -660,6 +716,8 @@ svg.mode-box-select {
   }
 
   .version-badge {
-    display: none;
+    display: inline-flex;
+    font-size: 0.58rem;
+    padding: 2px 6px;
   }
 }
