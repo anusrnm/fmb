@@ -1,7 +1,9 @@
-const VERSION = "2.4.4";
+const VERSION = "2.4.5";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
+const MIN_SCALE = 0.01;
+const MAX_SCALE = 320;
 
 const MODES = [
   "select",
@@ -2100,7 +2102,7 @@ function handleWheel(event) {
   const screen = getScreenPointFromEvent(event);
   const beforeWorld = screenToWorld(screen);
   const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-  state.scale = clamp(state.scale * factor, 6, 320);
+  state.scale = clamp(state.scale * factor, MIN_SCALE, MAX_SCALE);
 
   const rect = getRect();
   state.panX = screen.x - beforeWorld.x * state.scale - rect.width * 0.5;
@@ -2113,7 +2115,7 @@ function zoomBy(factor) {
   const rect = getRect();
   const centerScreen = { x: rect.width * 0.5, y: rect.height * 0.5 };
   const beforeWorld = screenToWorld(centerScreen);
-  state.scale = clamp(state.scale * factor, 6, 320);
+  state.scale = clamp(state.scale * factor, MIN_SCALE, MAX_SCALE);
   state.panX = centerScreen.x - beforeWorld.x * state.scale - rect.width * 0.5;
   state.panY = centerScreen.y + beforeWorld.y * state.scale - rect.height * 0.5;
   render();
@@ -2129,8 +2131,8 @@ function resetZoomAndPan() {
 
 function zoomPercentText() {
   const percent = (state.scale / 32) * 100;
-  const rounded = Math.round(percent * 10) / 10;
-  const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  const rounded = Math.round(percent * 100) / 100;
+  const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
   return `${display}%`;
 }
 
@@ -2441,6 +2443,14 @@ function isEditingTextInput(target) {
 
 function handleKeyDown(event) {
   if (isEditingTextInput(event.target)) {
+    return;
+  }
+
+  if (["+", "=", "-", "_"].includes(event.key) && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    const zoomIn = event.key === "+" || event.key === "=";
+    const factor = event.shiftKey ? 1.5 : event.altKey ? 1.05 : 1.15;
+    zoomBy(zoomIn ? factor : 1 / factor);
     return;
   }
 

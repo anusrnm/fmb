@@ -100,3 +100,6 @@ coverage/
 # Node.js compatibility (only if using node_modules npm specifiers locally)
 node_modules/
 npm-debug.log*
+
+# Graphify
+graphify-out

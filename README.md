@@ -23,7 +23,7 @@ deno run --allow-env --allow-net --allow-read main.ts
 - Double-click on any segment or polygon edge inserts a new point on that edge.
 - Select mode supports click selection, Ctrl/Cmd additive selection, drag to move, and Delete/Backspace removal.
 - Graph workspace includes major/minor grid lines and smooth zoom/pan.
-- Zoom controls include in/out, and the reset button always shows the current zoom percentage.
+- Zoom controls include in/out, support views up to roughly 100 km wide on a 1000 px canvas, and the reset button always shows the current zoom percentage. Zoom remains bounded to preserve browser rendering precision.
 - Undo/Redo with keyboard shortcuts.
 - Right-click context menu includes Coordinates and Join Selected Points.
 - Coordinates dialog is editable:
@@ -51,11 +51,15 @@ deno run --allow-env --allow-net --allow-read main.ts
 - Arrow keys: Move selected objects in Select mode
 - Shift + Arrow: Coarse movement
 - Alt + Arrow: Fine movement (0.01)
+- + / -: Zoom in / out
+- Shift + + / -: Coarse zoom (1.5x)
+- Alt + + / -: Fine zoom (1.05x)
 - 1..9, 0: Switch modes in toolbar order
 
 ## Verify
 
 ```bash
+node --check app.js
 deno check app.js
 deno test --allow-env distance.test.mjs main_test.ts
 ```
