@@ -1,4 +1,4 @@
-const VERSION = "2.4.3";
+const VERSION = "2.4.4";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -1324,10 +1324,10 @@ function render() {
     const xs = polygonScreenPoints.map((point) => point.x);
     const ys = polygonScreenPoints.map((point) => point.y);
     const bboxArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
-    const showPerimeter = state.display.showLabels && state.display.showPolygons;
+    const showArea = state.display.showLabels && state.display.showPolygons;
     const showAreaMetrics = state.display.showLabels && state.display.showPolygons && bboxArea > 42000;
-    if (showPerimeter) {
-      const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 64, `Perimeter: ${round2(perimeter)} m`, {
+    if (showArea) {
+      const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 64, `Area: ${round2(converted.sqm)} sqm`, {
         class: "area-metric-text area-metric-title",
       });
       labelsGroup.append(title);
@@ -1337,7 +1337,7 @@ function render() {
       const areaLines = [
         `Hectares: ${round3(converted.hectares)}`,
         `Ares: ${round3(converted.ares)}`,
-        `Sqm: ${round2(converted.sqm)}`,
+        `Perimeter: ${round2(perimeter)} m`,
         `Acres: ${round3(converted.acres)}`,
         `Cents: ${round3(converted.cents)}`,
         `Sqft: ${round2(converted.sqft)}`,
