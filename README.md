@@ -9,6 +9,10 @@ No app server is required. Open [index.html](index.html) directly in a browser.
 Optional local server (if your browser blocks file imports from local files):
 
 ```bash
+python -m http.server 8000
+```
+or
+```bash
 deno run --allow-env --allow-net --allow-read main.ts
 ```
 

@@ -1,4 +1,4 @@
-const VERSION = "2.4.2";
+const VERSION = "2.4.3";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -2255,14 +2255,25 @@ function drawShapeFromCoordinateInput() {
 
     const previousPointIds = [...polygon.pointIds];
     const nextPointIds = [];
-    for (const item of parsed) {
-      const point = addPoint(item.x, item.y, item.label ? { label: item.label } : {});
-      nextPointIds.push(point.id);
+    for (let index = 0; index < parsed.length; index += 1) {
+      const item = parsed[index];
+      const existingPoint = getPointById(previousPointIds[index]);
+      if (existingPoint) {
+        existingPoint.x = round2(item.x);
+        existingPoint.y = round2(item.y);
+        if (item.label) {
+          existingPoint.label = item.label;
+        }
+        nextPointIds.push(existingPoint.id);
+      } else {
+        const point = addPoint(item.x, item.y, item.label ? { label: item.label } : {});
+        nextPointIds.push(point.id);
+      }
     }
 
     polygon.pointIds = nextPointIds;
 
-    for (const pointId of previousPointIds) {
+    for (const pointId of previousPointIds.slice(parsed.length)) {
       if (!pointIsUsedOutsidePolygon(pointId, polygon.id)) {
         removePoint(pointId);
       }
@@ -2418,7 +2429,21 @@ function initializeDemoGeometry() {
   addText({ x: 1, y: 2 }, "Title Goes Here", 18);
 }
 
+function isEditingTextInput(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  return target.closest("input, textarea, select, [contenteditable='true']") !== null;
+}
+
 function handleKeyDown(event) {
+  if (isEditingTextInput(event.target)) {
+    return;
+  }
+
   if (event.key === "Escape") {
     if (isInlineEditorOpen()) {
       closeInlineTextEditor(false, true);
@@ -2444,18 +2469,12 @@ function handleKeyDown(event) {
   }
 
   if (event.key === "Delete" || event.key === "Backspace") {
-    if (document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
-      return;
-    }
     event.preventDefault();
     removeSelectedObjects();
     return;
   }
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
-    if (document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
-      return;
-    }
     event.preventDefault();
     state.selection.points = new Set(state.points.map((point) => point.id));
     state.selection.segments = new Set(state.segments.map((segment) => segment.id));
@@ -2639,12 +2658,17 @@ function wireEvents() {
   ui.graph.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     const screen = getScreenPointFromEvent(event);
+    const hitPolygon = hitTestPolygonLabel(screen) || hitTestPolygon(screen);
     const isEmptyArea =
       !hitTestPoint(screen) &&
       !hitTestText(screen) &&
       !hitTestSegment(screen) &&
-      !hitTestPolygonLabel(screen) &&
-      !hitTestPolygon(screen);
+      !hitPolygon;
+    if (hitPolygon) {
+      clearSelection();
+      state.selection.polygons.add(hitPolygon.id);
+      render();
+    }
     ui.viewPointsBtn.dataset.context = isEmptyArea ? "empty" : "objects";
     showContextMenu(event.clientX, event.clientY);
   });
