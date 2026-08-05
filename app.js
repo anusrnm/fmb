@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.5.0";
+const VERSION = "2.5.1";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -42,6 +42,40 @@ const state = core.createState();
 
 // Populated from the DOM in bootstrap() so importing this module does no DOM work.
 const ui = {};
+let disposeWiredEvents = null;
+let pendingRenderFrame = 0;
+let renderQueued = false;
+let cachedGridKey = "";
+let cachedGridLayer = null;
+const perfCounters = {
+  renderNowCalls: 0,
+  gridCacheHits: 0,
+  gridCacheMisses: 0,
+};
+
+function resetPerfCounters() {
+  perfCounters.renderNowCalls = 0;
+  perfCounters.gridCacheHits = 0;
+  perfCounters.gridCacheMisses = 0;
+}
+
+function getPerfCounters() {
+  return {
+    renderNowCalls: perfCounters.renderNowCalls,
+    gridCacheHits: perfCounters.gridCacheHits,
+    gridCacheMisses: perfCounters.gridCacheMisses,
+  };
+}
+
+function exposePerfCounters() {
+  if (typeof globalThis === "undefined") {
+    return;
+  }
+  globalThis.__fmbPerf = {
+    reset: resetPerfCounters,
+    get: getPerfCounters,
+  };
+}
 
 function getCssVar(name, fallback) {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -195,52 +229,88 @@ function serializeCoreState() {
 }
 
 function applyCoreState(serialized) {
-  state.nextId = Number(serialized.nextId) || 1;
-  state.scale = Number(serialized.scale) || 32;
-  state.panX = Number(serialized.panX) || 0;
-  state.panY = Number(serialized.panY) || 0;
-  state.points = Array.isArray(serialized.points)
+  if (!serialized || typeof serialized !== "object") {
+    throw new Error("This file does not contain a diagram state.");
+  }
+
+  const readFiniteNumber = (value, field) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      throw new Error(`Invalid ${field} in diagram data.`);
+    }
+    return number;
+  };
+  const readEntityId = (value, field, ids) => {
+    const id = readFiniteNumber(value, field);
+    if (!Number.isInteger(id) || id < 1 || ids.has(id)) {
+      throw new Error(`Invalid or duplicate ${field} in diagram data.`);
+    }
+    ids.add(id);
+    return id;
+  };
+
+  const ids = new Set();
+  const points = Array.isArray(serialized.points)
     ? serialized.points.map((point) => ({
-        id: Number(point.id),
-        x: Number(point.x),
-        y: Number(point.y),
+        id: readEntityId(point.id, "point ID", ids),
+        x: readFiniteNumber(point.x, "point x coordinate"),
+        y: readFiniteNumber(point.y, "point y coordinate"),
         label: String(point.label || ""),
       }))
     : [];
-  state.segments = Array.isArray(serialized.segments)
+  const segments = Array.isArray(serialized.segments)
     ? serialized.segments.map((segment) => ({
-        id: Number(segment.id),
+        id: readEntityId(segment.id, "segment ID", ids),
         a: Number(segment.a),
         b: Number(segment.b),
         kind: String(segment.kind || "segment"),
       }))
     : [];
-  state.polygons = Array.isArray(serialized.polygons)
+  const polygons = Array.isArray(serialized.polygons)
     ? serialized.polygons.map((polygon) => ({
-        id: Number(polygon.id),
+        id: readEntityId(polygon.id, "polygon ID", ids),
         pointIds: Array.isArray(polygon.pointIds) ? polygon.pointIds.map((id) => Number(id)) : [],
         labelOffset: polygon.labelOffset
-          ? { x: Number(polygon.labelOffset.x) || 0, y: Number(polygon.labelOffset.y) || 0 }
+          ? {
+              x: readFiniteNumber(polygon.labelOffset.x, "polygon label x offset"),
+              y: readFiniteNumber(polygon.labelOffset.y, "polygon label y offset"),
+            }
           : { x: 0, y: 0 },
       }))
     : [];
-  state.texts = Array.isArray(serialized.texts)
+  const texts = Array.isArray(serialized.texts)
     ? serialized.texts.map((text) => ({
-        id: Number(text.id),
-        x: Number(text.x),
-        y: Number(text.y),
+        id: readEntityId(text.id, "text ID", ids),
+        x: readFiniteNumber(text.x, "text x coordinate"),
+        y: readFiniteNumber(text.y, "text y coordinate"),
         content: String(text.content || "Text"),
         size: clamp(Number(text.size) || 14, 10, 80),
       }))
     : [];
-  state.angleAnnotations = Array.isArray(serialized.angleAnnotations)
+  const angleAnnotations = Array.isArray(serialized.angleAnnotations)
     ? serialized.angleAnnotations.map((item) => ({
-        id: Number(item.id),
+        id: readEntityId(item.id, "angle annotation ID", ids),
         vertexId: Number(item.vertexId),
         aId: Number(item.aId),
         bId: Number(item.bId),
       }))
     : [];
+
+  const nextId = Math.max(
+    ...ids,
+    Number.isInteger(Number(serialized.nextId)) && Number(serialized.nextId) > 0
+      ? Number(serialized.nextId)
+      : 1
+  );
+  state.nextId = nextId > Math.max(0, ...ids) ? nextId : nextId + 1;
+  state.scale = Number(serialized.scale) || 32;
+  state.panX = Number(serialized.panX) || 0;
+  state.panY = Number(serialized.panY) || 0;
+  state.points = points;
+  state.segments = segments;
+  state.polygons = polygons;
+  state.texts = texts;
+  state.angleAnnotations = angleAnnotations;
 
   normalizeGeometry();
   clearSelection();
@@ -861,6 +931,29 @@ function drawGrid(parentGroup) {
   const minorColor = getCssVar("--grid-minor", "#dce6ec");
   const majorColor = getCssVar("--grid-major", "#b0c3cd");
   const axisColor = getCssVar("--grid-axis", "#6b7f8d");
+  const theme = document.documentElement.getAttribute("data-theme") || "light";
+
+  const gridKey = [
+    `${Math.round(rect.width)}x${Math.round(rect.height)}`,
+    state.scale.toFixed(6),
+    state.panX.toFixed(4),
+    state.panY.toFixed(4),
+    majorStep.toPrecision(8),
+    state.display.showMajorGrid ? "1" : "0",
+    state.display.showMinorGrid ? "1" : "0",
+    state.display.showGridValues ? "1" : "0",
+    minorColor,
+    majorColor,
+    axisColor,
+    theme,
+  ].join("|");
+
+  if (cachedGridLayer && cachedGridKey === gridKey) {
+    perfCounters.gridCacheHits += 1;
+    parentGroup.append(cachedGridLayer.cloneNode(true));
+    return;
+  }
+  perfCounters.gridCacheMisses += 1;
 
   const minWorld = screenToWorld({ x: 0, y: rect.height });
   const maxWorld = screenToWorld({ x: rect.width, y: 0 });
@@ -937,10 +1030,15 @@ function drawGrid(parentGroup) {
   );
   }
 
-  parentGroup.append(gridGroup, majorGroup, axesGroup, valuesGroup);
+  const layer = document.createElementNS(SVG_NS, "g");
+  layer.append(gridGroup, majorGroup, axesGroup, valuesGroup);
+  cachedGridLayer = layer;
+  cachedGridKey = gridKey;
+  parentGroup.append(layer.cloneNode(true));
 }
 
-function render() {
+function renderNow() {
+  perfCounters.renderNowCalls += 1;
   updateZoomResetButton();
   const rect = getRect();
   ui.graph.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
@@ -1248,6 +1346,34 @@ function render() {
   ui.graph.append(root);
 }
 
+function flushRender() {
+  if (!renderQueued) {
+    return;
+  }
+  if (pendingRenderFrame && typeof globalThis.cancelAnimationFrame === "function") {
+    globalThis.cancelAnimationFrame(pendingRenderFrame);
+  }
+  pendingRenderFrame = 0;
+  renderQueued = false;
+  renderNow();
+}
+
+function render() {
+  if (typeof globalThis.requestAnimationFrame !== "function") {
+    renderNow();
+    return;
+  }
+  if (renderQueued) {
+    return;
+  }
+  renderQueued = true;
+  pendingRenderFrame = globalThis.requestAnimationFrame(() => {
+    pendingRenderFrame = 0;
+    renderQueued = false;
+    renderNow();
+  });
+}
+
 function getSelectionSummary() {
   return `${state.selection.points.size} point(s), ${state.selection.segments.size} segment(s), ${state.selection.polygons.size} polygon(s), ${state.selection.texts.size} text item(s)`;
 }
@@ -1339,8 +1465,13 @@ function handleModeAction(screen, world) {
       return;
     }
 
-    addSegment(first, point.id, "segment");
+    const segment = addSegment(first, point.id, "segment");
     state.construction = null;
+    if (!segment) {
+      render();
+      setStatus("That segment already exists.");
+      return;
+    }
     pushHistory();
     render();
     setStatus("Segment created.");
@@ -1559,7 +1690,13 @@ function handlePointerDown(event) {
       selectSingle("points", hitPoint.id);
     }
 
-    const movedIds = state.selection.points.size > 0 ? [...state.selection.points] : [hitPoint.id];
+    const movedIds = [...state.selection.points];
+    if (movedIds.length === 0) {
+      state.drag = null;
+      render();
+      setStatus(`Selection updated: ${getSelectionSummary()}`);
+      return;
+    }
     const startPositions = new Map();
     for (const pointId of movedIds) {
       const point = getPointById(pointId);
@@ -2221,12 +2358,18 @@ function handleDoubleClick(event) {
 }
 
 function wireEvents() {
+  const disposers = [];
+  function addTrackedEvent(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    disposers.push(() => target.removeEventListener(type, handler, options));
+  }
+
   for (const button of ui.modeButtons) {
-    button.addEventListener("click", () => setMode(button.dataset.mode || "select"));
+    addTrackedEvent(button, "click", () => setMode(button.dataset.mode || "select"));
   }
 
   for (const group of ui.modeSelectGroups) {
-    group.addEventListener("click", (event) => {
+    addTrackedEvent(group, "click", (event) => {
       // Let direct select interactions be handled by the native dropdown and change handler.
       if (event.target instanceof HTMLSelectElement || event.target instanceof HTMLOptionElement) {
         return;
@@ -2242,56 +2385,56 @@ function wireEvents() {
   }
 
   for (const select of ui.modeSelects) {
-    select.addEventListener("change", () => {
+    addTrackedEvent(select, "change", () => {
       setMode(select.value || "select");
     });
   }
 
-  ui.mobileMenuToggle.addEventListener("click", () => {
+  addTrackedEvent(ui.mobileMenuToggle, "click", () => {
     const nextOpen = !ui.toolMenu.classList.contains("open");
     ui.toolMenu.classList.toggle("open", nextOpen);
     ui.mobileMenuToggle.setAttribute("aria-expanded", String(nextOpen));
   });
 
-  ui.undoBtn.addEventListener("click", undo);
-  ui.redoBtn.addEventListener("click", redo);
-  ui.zoomInBtn.addEventListener("click", () => zoomBy(1.15));
-  ui.zoomOutBtn.addEventListener("click", () => zoomBy(1 / 1.15));
-  ui.zoomResetBtn.addEventListener("click", resetZoomAndPan);
-  ui.exportJsonBtn.addEventListener("click", exportJson);
-  ui.exportSvgBtn.addEventListener("click", exportSvg);
-  ui.importBtn.addEventListener("click", () => ui.importFile.click());
-  ui.themeToggleBtn.addEventListener("click", toggleTheme);
-  ui.importFile.addEventListener("change", handleImport);
+  addTrackedEvent(ui.undoBtn, "click", undo);
+  addTrackedEvent(ui.redoBtn, "click", redo);
+  addTrackedEvent(ui.zoomInBtn, "click", () => zoomBy(1.15));
+  addTrackedEvent(ui.zoomOutBtn, "click", () => zoomBy(1 / 1.15));
+  addTrackedEvent(ui.zoomResetBtn, "click", resetZoomAndPan);
+  addTrackedEvent(ui.exportJsonBtn, "click", exportJson);
+  addTrackedEvent(ui.exportSvgBtn, "click", exportSvg);
+  addTrackedEvent(ui.importBtn, "click", () => ui.importFile.click());
+  addTrackedEvent(ui.themeToggleBtn, "click", toggleTheme);
+  addTrackedEvent(ui.importFile, "change", handleImport);
 
-  ui.settingsBtn.addEventListener("click", () => {
+  addTrackedEvent(ui.settingsBtn, "click", () => {
     ui.settingsPanel.hidden = !ui.settingsPanel.hidden;
   });
-  ui.closeSettingsBtn.addEventListener("click", () => {
+  addTrackedEvent(ui.closeSettingsBtn, "click", () => {
     ui.settingsPanel.hidden = true;
   });
-  ui.snapToggle.addEventListener("change", () => {
+  addTrackedEvent(ui.snapToggle, "change", () => {
     state.snapToPoints = ui.snapToggle.checked;
     saveDisplaySettings();
     setStatus(state.snapToPoints ? "Snap enabled." : "Snap disabled.");
   });
 
-  ui.showPointsToggle.addEventListener("change", (event) => updateDisplaySetting("showPoints", event.target.checked));
-  ui.showLabelsToggle.addEventListener("change", (event) => updateDisplaySetting("showLabels", event.target.checked));
-  ui.showSegmentsToggle.addEventListener("change", (event) => updateDisplaySetting("showSegments", event.target.checked));
-  ui.showSegmentLengthsToggle.addEventListener("change", (event) => updateDisplaySetting("showSegmentLengths", event.target.checked));
-  ui.showTextToggle.addEventListener("change", (event) => updateDisplaySetting("showText", event.target.checked));
-  ui.showPolygonsToggle.addEventListener("change", (event) => updateDisplaySetting("showPolygons", event.target.checked));
-  ui.showAnglesToggle.addEventListener("change", (event) => updateDisplaySetting("showAngles", event.target.checked));
-  ui.showMajorGridToggle.addEventListener("change", (event) => updateDisplaySetting("showMajorGrid", event.target.checked));
-  ui.showMinorGridToggle.addEventListener("change", (event) => updateDisplaySetting("showMinorGrid", event.target.checked));
-  ui.showGridValuesToggle.addEventListener("change", (event) => updateDisplaySetting("showGridValues", event.target.checked));
+  addTrackedEvent(ui.showPointsToggle, "change", (event) => updateDisplaySetting("showPoints", event.target.checked));
+  addTrackedEvent(ui.showLabelsToggle, "change", (event) => updateDisplaySetting("showLabels", event.target.checked));
+  addTrackedEvent(ui.showSegmentsToggle, "change", (event) => updateDisplaySetting("showSegments", event.target.checked));
+  addTrackedEvent(ui.showSegmentLengthsToggle, "change", (event) => updateDisplaySetting("showSegmentLengths", event.target.checked));
+  addTrackedEvent(ui.showTextToggle, "change", (event) => updateDisplaySetting("showText", event.target.checked));
+  addTrackedEvent(ui.showPolygonsToggle, "change", (event) => updateDisplaySetting("showPolygons", event.target.checked));
+  addTrackedEvent(ui.showAnglesToggle, "change", (event) => updateDisplaySetting("showAngles", event.target.checked));
+  addTrackedEvent(ui.showMajorGridToggle, "change", (event) => updateDisplaySetting("showMajorGrid", event.target.checked));
+  addTrackedEvent(ui.showMinorGridToggle, "change", (event) => updateDisplaySetting("showMinorGrid", event.target.checked));
+  addTrackedEvent(ui.showGridValuesToggle, "change", (event) => updateDisplaySetting("showGridValues", event.target.checked));
 
-  ui.graph.addEventListener("pointerdown", handlePointerDown);
-  ui.graph.addEventListener("pointermove", handlePointerMove);
-  ui.graph.addEventListener("pointerup", handlePointerUp);
-  ui.graph.addEventListener("dblclick", handleDoubleClick);
-  ui.graph.addEventListener("pointerleave", () => {
+  addTrackedEvent(ui.graph, "pointerdown", handlePointerDown);
+  addTrackedEvent(ui.graph, "pointermove", handlePointerMove);
+  addTrackedEvent(ui.graph, "pointerup", handlePointerUp);
+  addTrackedEvent(ui.graph, "dblclick", handleDoubleClick);
+  addTrackedEvent(ui.graph, "pointerleave", () => {
     if (!state.drag) {
       state.hoverWorld = null;
       state.hoverScreen = null;
@@ -2299,9 +2442,9 @@ function wireEvents() {
       render();
     }
   });
-  ui.graph.addEventListener("wheel", handleWheel, { passive: false });
+  addTrackedEvent(ui.graph, "wheel", handleWheel, { passive: false });
 
-  ui.graph.addEventListener("contextmenu", (event) => {
+  addTrackedEvent(ui.graph, "contextmenu", (event) => {
     event.preventDefault();
     const screen = getScreenPointFromEvent(event);
     const hitPolygon = hitTestPolygonLabel(screen) || hitTestPolygon(screen);
@@ -2319,7 +2462,7 @@ function wireEvents() {
     showContextMenu(event.clientX, event.clientY);
   });
 
-  ui.viewPointsBtn.addEventListener("click", () => {
+  addTrackedEvent(ui.viewPointsBtn, "click", () => {
     hideContextMenu();
     if (ui.viewPointsBtn.dataset.context === "empty") {
       showPointListDialog("A, 0, 0\nB, 5, 0\nC, 4, 3\nD, 1, 4");
@@ -2328,12 +2471,12 @@ function wireEvents() {
     }
     showPointListDialog(pointsToCoordinateList());
   });
-  ui.joinPointsBtn.addEventListener("click", () => {
+  addTrackedEvent(ui.joinPointsBtn, "click", () => {
     hideContextMenu();
     joinSelectedPoints();
   });
 
-  ui.copyPointsBtn.addEventListener("click", async () => {
+  addTrackedEvent(ui.copyPointsBtn, "click", async () => {
     ui.pointsOutput.select();
     try {
       await navigator.clipboard.writeText(ui.pointsOutput.value);
@@ -2344,21 +2487,21 @@ function wireEvents() {
     }
   });
 
-  ui.drawPointsBtn.addEventListener("click", () => {
+  addTrackedEvent(ui.drawPointsBtn, "click", () => {
     drawShapeFromCoordinateInput();
   });
 
-  globalThis.addEventListener("click", (event) => {
+  addTrackedEvent(globalThis, "click", (event) => {
     if (event.target !== ui.contextMenu && !ui.contextMenu.contains(event.target)) {
       hideContextMenu();
     }
   });
 
-  globalThis.addEventListener("keydown", handleKeyDown);
-  globalThis.addEventListener("resize", render);
+  addTrackedEvent(globalThis, "keydown", handleKeyDown);
+  addTrackedEvent(globalThis, "resize", render);
 
   let _printStyle = null;
-  globalThis.addEventListener("beforeprint", () => {
+  addTrackedEvent(globalThis, "beforeprint", () => {
     const rect = ui.graph.getBoundingClientRect();
     // A4 at 96 dpi: 794 × 1122 px (portrait) or 1122 × 794 px (landscape)
     const landscape = rect.width >= rect.height;
@@ -2370,14 +2513,14 @@ function wireEvents() {
     _printStyle.textContent = `@page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 0; }`;
     document.head.appendChild(_printStyle);
   });
-  globalThis.addEventListener("afterprint", () => {
+  addTrackedEvent(globalThis, "afterprint", () => {
     ui.graph.removeAttribute("width");
     ui.graph.removeAttribute("height");
     _printStyle?.remove();
     _printStyle = null;
   });
 
-  ui.inlineTextEditor.addEventListener("keydown", (event) => {
+  addTrackedEvent(ui.inlineTextEditor, "keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       closeInlineTextEditor(true, state.mode === "text");
@@ -2386,12 +2529,22 @@ function wireEvents() {
       closeInlineTextEditor(false, true);
     }
   });
-  ui.inlineTextEditor.addEventListener("blur", () => {
+  addTrackedEvent(ui.inlineTextEditor, "blur", () => {
     closeInlineTextEditor(true, false);
   });
+
+  return () => {
+    for (let index = disposers.length - 1; index >= 0; index -= 1) {
+      disposers[index]();
+    }
+  };
 }
 
 function bootstrap() {
+  flushRender();
+  disposeWiredEvents?.();
+  disposeWiredEvents = null;
+  exposePerfCounters();
   Object.assign(ui, queryUi(document));
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   applyTheme(savedTheme === "dark" ? "dark" : "light");
@@ -2399,7 +2552,7 @@ function bootstrap() {
   syncDisplayControlsToState();
   ui.versionBadge.textContent = `v${VERSION}`;
   initializeDemoGeometry();
-  wireEvents();
+  disposeWiredEvents = wireEvents();
   setMode("select");
   pushHistory();
   render();

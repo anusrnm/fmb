@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 async function clickGraph(page, x, y) {
   await page.locator("#graph").click({ position: { x, y } });
@@ -91,6 +92,31 @@ test("selects, nudges, and deletes a point with keyboard controls", async ({ pag
   await expect(page.locator("#graph circle")).toHaveCount(3);
 });
 
+test("ctrl/cmd deselect does not drag a point", async ({ page, browserName }) => {
+  const modifier = browserName === "webkit" ? "Meta" : "Control";
+  const pointA = page.locator("#graph text", { hasText: "A (-8, -4)" });
+  const pointCircle = page.locator("#graph circle").first();
+
+  await expect(pointA).toBeVisible();
+  const box = await pointCircle.boundingBox();
+  if (!box) {
+    throw new Error("Expected first point circle to be visible.");
+  }
+  const x = box.x + box.width * 0.5;
+  const y = box.y + box.height * 0.5;
+
+  await page.mouse.click(x, y);
+
+  await page.keyboard.down(modifier);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 50, y + 20);
+  await page.mouse.up();
+  await page.keyboard.up(modifier);
+
+  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
+});
+
 test("constructs parallel and perpendicular segments from a selected base", async ({ page }) => {
   await page.getByLabel("Line tools").selectOption("segment");
   await clickGraph(page, 300, 500);
@@ -164,4 +190,72 @@ test("imports a JSON diagram and exports JSON and SVG snapshots", async ({ page 
     page.getByTitle("Export SVG").click(),
   ]);
   await expect(svgDownload.suggestedFilename()).toBe("fmb-studio-diagram.svg");
+});
+
+test("rejects invalid JSON coordinates without replacing the current diagram", async ({ page }) => {
+  await page.locator("#import-file").setInputFiles({
+    name: "invalid.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ data: { points: [{ id: 1, x: "invalid", y: 0 }] } })),
+  });
+
+  await expect(page.getByRole("status")).toContainText("Import failed: Invalid point x coordinate");
+  await expect(page.locator("#graph circle")).toHaveCount(4);
+});
+
+test("repairs stale imported next IDs before creating new objects", async ({ page }) => {
+  await page.locator("#import-file").setInputFiles({
+    name: "stale-next-id.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      data: {
+        nextId: 1,
+        scale: 32,
+        panX: 0,
+        panY: 0,
+        points: [
+          { id: 1, x: 0, y: 0, label: "A" },
+          { id: 2, x: 4, y: 0, label: "B" },
+          { id: 3, x: 2, y: 3, label: "C" },
+        ],
+        segments: [],
+        polygons: [{ id: 4, pointIds: [1, 2, 3], labelOffset: { x: 0, y: 0 } }],
+        texts: [],
+        angleAnnotations: [],
+      },
+    })),
+  });
+  await page.getByTitle("Point").click();
+  await clickGraph(page, 650, 450);
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTitle("Export JSON").click(),
+  ]);
+  const filePath = await download.path();
+  if (!filePath) {
+    throw new Error("Expected exported JSON download path.");
+  }
+  const exported = JSON.parse(await readFile(filePath, "utf8"));
+  const ids = [
+    ...exported.data.points,
+    ...exported.data.segments,
+    ...exported.data.polygons,
+    ...exported.data.texts,
+    ...exported.data.angleAnnotations,
+  ].map((item) => item.id);
+
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(exported.data.nextId).toBeGreaterThan(Math.max(...ids));
+});
+
+test("reports duplicate segment creation instead of claiming success", async ({ page }) => {
+  await page.getByLabel("Line tools").selectOption("segment");
+  await clickGraph(page, 300, 500);
+  await clickGraph(page, 500, 500);
+  await expect(page.getByRole("status")).toContainText("Segment created");
+
+  await clickGraph(page, 300, 500);
+  await clickGraph(page, 500, 500);
+  await expect(page.getByRole("status")).toContainText("That segment already exists");
 });
