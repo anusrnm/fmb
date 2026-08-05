@@ -1,4 +1,4 @@
-const VERSION = "2.4.5";
+const VERSION = "2.4.6";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -36,6 +36,7 @@ const state = {
   drag: null,
   boxSelect: null,
   polygonDraft: [],
+  polygonDraftCreatedPointIds: new Set(),
   midpointHoverWorld: null,
   construction: null,
   textEdit: null,
@@ -366,6 +367,7 @@ function applyCoreState(serialized) {
   state.drag = null;
   state.boxSelect = null;
   state.polygonDraft = [];
+  state.polygonDraftCreatedPointIds.clear();
   state.midpointHoverWorld = null;
   state.construction = null;
   closeInlineTextEditor(false, false);
@@ -757,6 +759,26 @@ function removePoint(pointId) {
   state.selection.points.delete(pointId);
 }
 
+function cancelPolygonDraft() {
+  const releasedPointIds = [...state.polygonDraftCreatedPointIds];
+  for (const pointId of state.polygonDraftCreatedPointIds) {
+    removePoint(pointId);
+  }
+  const firstReleasedId = Math.min(...releasedPointIds);
+  const hasNewerObject = [
+    ...state.points,
+    ...state.segments,
+    ...state.polygons,
+    ...state.texts,
+    ...state.angleAnnotations,
+  ].some((item) => item.id >= firstReleasedId);
+  if (Number.isFinite(firstReleasedId) && !hasNewerObject) {
+    state.nextId = firstReleasedId;
+  }
+  state.polygonDraft = [];
+  state.polygonDraftCreatedPointIds.clear();
+}
+
 function removeSelectedObjects() {
   if (
     state.selection.points.size === 0 &&
@@ -1065,7 +1087,7 @@ function setMode(mode) {
     return;
   }
   state.mode = mode;
-  state.polygonDraft = [];
+  cancelPolygonDraft();
   state.construction = null;
   state.boxSelect = null;
 
@@ -1371,14 +1393,14 @@ function render() {
     }
   }
 
-  if (state.polygonDraft.length >= 2) {
-    const draftPoints = state.polygonDraft
+  if (state.polygonDraft.length >= 1) {
+    const draftWorldPoints = state.polygonDraft
       .map((pointId) => getPointById(pointId))
-      .filter(Boolean)
-      .map((point) => worldToScreen(point));
+      .filter(Boolean);
     if (state.hoverWorld) {
-      draftPoints.push(worldToScreen(state.hoverWorld));
+      draftWorldPoints.push(state.hoverWorld);
     }
+    const draftPoints = draftWorldPoints.map((point) => worldToScreen(point));
 
     if (draftPoints.length >= 3) {
       polygonsGroup.append(
@@ -1398,6 +1420,22 @@ function render() {
           "stroke-width": 1.8,
         })
       );
+    }
+
+    if (state.display.showPolygons && state.display.showSegmentLengths && state.display.showLabels) {
+      const edgeCount = draftWorldPoints.length >= 3 ? draftWorldPoints.length : draftWorldPoints.length - 1;
+      for (let index = 0; index < edgeCount; index += 1) {
+        const aPoint = draftWorldPoints[index];
+        const bPoint = draftWorldPoints[(index + 1) % draftWorldPoints.length];
+        const aScreen = worldToScreen(aPoint);
+        const bScreen = worldToScreen(bPoint);
+        const midpoint = { x: (aScreen.x + bScreen.x) * 0.5, y: (aScreen.y + bScreen.y) * 0.5 };
+        labelsGroup.append(
+          makeText(midpoint.x, midpoint.y - 5, `${round2(distanceWorld(aPoint, bPoint))} m`, {
+            class: "segment-length-text",
+          })
+        );
+      }
     }
   }
 
@@ -1732,6 +1770,7 @@ function handleModeAction(screen, world) {
       addPolygon(state.polygonDraft);
       const area = polygonArea(state.polygonDraft);
       state.polygonDraft = [];
+      state.polygonDraftCreatedPointIds.clear();
       pushHistory();
       render();
       setStatus(`Polygon closed. Area: ${round2(area)} sq units.`);
@@ -1745,6 +1784,9 @@ function handleModeAction(screen, world) {
     }
 
     state.polygonDraft.push(point.id);
+    if (!hitPoint) {
+      state.polygonDraftCreatedPointIds.add(point.id);
+    }
     const draftArea = state.polygonDraft.length >= 3 ? polygonArea(state.polygonDraft) : 0;
     render();
     setStatus(
