@@ -14,7 +14,7 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
   webServer: {
-    command: "node test/static-server.mjs",
+    command: "node test/static.server.mjs",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
   },

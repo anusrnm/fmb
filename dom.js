@@ -1,0 +1,48 @@
+// DOM binding layer: resolves every UI element the app needs from a document.
+// Taking `doc` as a parameter keeps the lookups deferred (not run at import time)
+// and lets them be exercised with a stub document in isolation.
+
+export function queryUi(doc) {
+  return {
+    graph: doc.getElementById("graph"),
+    status: doc.getElementById("status"),
+    versionBadge: doc.getElementById("version-badge"),
+    modeButtons: Array.from(doc.querySelectorAll(".tool-btn[data-mode]")),
+    modeSelects: Array.from(doc.querySelectorAll(".tool-select")),
+    modeSelectGroups: Array.from(doc.querySelectorAll(".tool-select-wrap")),
+    toolMenu: doc.getElementById("tool-menu"),
+    mobileMenuToggle: doc.getElementById("mobile-menu-toggle"),
+    undoBtn: doc.getElementById("undo-btn"),
+    redoBtn: doc.getElementById("redo-btn"),
+    zoomInBtn: doc.getElementById("zoom-in-btn"),
+    zoomOutBtn: doc.getElementById("zoom-out-btn"),
+    zoomResetBtn: doc.getElementById("zoom-reset-btn"),
+    exportJsonBtn: doc.getElementById("export-json-btn"),
+    exportSvgBtn: doc.getElementById("export-svg-btn"),
+    importBtn: doc.getElementById("import-btn"),
+    themeToggleBtn: doc.getElementById("theme-toggle-btn"),
+    importFile: doc.getElementById("import-file"),
+    settingsBtn: doc.getElementById("settings-btn"),
+    settingsPanel: doc.getElementById("settings-panel"),
+    closeSettingsBtn: doc.getElementById("close-settings-btn"),
+    snapToggle: doc.getElementById("snap-toggle"),
+    showPointsToggle: doc.getElementById("show-points-toggle"),
+    showLabelsToggle: doc.getElementById("show-labels-toggle"),
+    showSegmentsToggle: doc.getElementById("show-segments-toggle"),
+    showSegmentLengthsToggle: doc.getElementById("show-segment-lengths-toggle"),
+    showTextToggle: doc.getElementById("show-text-toggle"),
+    showPolygonsToggle: doc.getElementById("show-polygons-toggle"),
+    showAnglesToggle: doc.getElementById("show-angles-toggle"),
+    showMajorGridToggle: doc.getElementById("show-major-grid-toggle"),
+    showMinorGridToggle: doc.getElementById("show-minor-grid-toggle"),
+    showGridValuesToggle: doc.getElementById("show-grid-values-toggle"),
+    contextMenu: doc.getElementById("context-menu"),
+    viewPointsBtn: doc.getElementById("view-points-btn"),
+    joinPointsBtn: doc.getElementById("join-points-btn"),
+    pointsDialog: doc.getElementById("points-dialog"),
+    pointsOutput: doc.getElementById("points-output"),
+    copyPointsBtn: doc.getElementById("copy-points-btn"),
+    drawPointsBtn: doc.getElementById("draw-points-btn"),
+    inlineTextEditor: doc.getElementById("inline-text-editor"),
+  };
+}

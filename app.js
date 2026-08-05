@@ -1,4 +1,24 @@
-const VERSION = "2.4.6";
+import {
+  clamp,
+  round2,
+  round3,
+  distanceWorld,
+  distanceScreen,
+  areaConversions,
+  projectPointToSegment,
+  distancePointToSegmentScreen,
+  normalizeAngleRadians,
+  angleCandidateKey,
+} from "./geometry.js";
+import {
+  parseCoordinatesText,
+  normalizeCoordinateLoop,
+} from "./coordinates.js";
+import * as core from "./core.js";
+import { queryUi } from "./dom.js";
+import * as history from "./history.js";
+
+const VERSION = "2.5.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -18,141 +38,18 @@ const MODES = [
   "text",
 ];
 
-const state = {
-  mode: "select",
-  snapToPoints: true,
-  points: [],
-  segments: [],
-  polygons: [],
-  texts: [],
-  angleAnnotations: [],
-  nextId: 1,
-  scale: 32,
-  panX: 0,
-  panY: 0,
-  hoverWorld: null,
-  hoverScreen: null,
-  mouseDownScreen: null,
-  drag: null,
-  boxSelect: null,
-  polygonDraft: [],
-  polygonDraftCreatedPointIds: new Set(),
-  midpointHoverWorld: null,
-  construction: null,
-  textEdit: null,
-  selection: {
-    points: new Set(),
-    segments: new Set(),
-    polygons: new Set(),
-    texts: new Set(),
-  },
-  history: [],
-  historyIndex: -1,
-  display: {
-    showPoints: true,
-    showLabels: true,
-    showSegments: true,
-    showSegmentLengths: true,
-    showText: true,
-    showPolygons: true,
-    showAngles: true,
-    showMajorGrid: true,
-    showMinorGrid: true,
-    showGridValues: true,
-  },
-};
+const state = core.createState();
 
-const ui = {
-  graph: document.getElementById("graph"),
-  status: document.getElementById("status"),
-  versionBadge: document.getElementById("version-badge"),
-  modeButtons: Array.from(document.querySelectorAll(".tool-btn[data-mode]")),
-  modeSelects: Array.from(document.querySelectorAll(".tool-select")),
-  modeSelectGroups: Array.from(document.querySelectorAll(".tool-select-wrap")),
-  toolMenu: document.getElementById("tool-menu"),
-  mobileMenuToggle: document.getElementById("mobile-menu-toggle"),
-  undoBtn: document.getElementById("undo-btn"),
-  redoBtn: document.getElementById("redo-btn"),
-  zoomInBtn: document.getElementById("zoom-in-btn"),
-  zoomOutBtn: document.getElementById("zoom-out-btn"),
-  zoomResetBtn: document.getElementById("zoom-reset-btn"),
-  exportJsonBtn: document.getElementById("export-json-btn"),
-  exportSvgBtn: document.getElementById("export-svg-btn"),
-  importBtn: document.getElementById("import-btn"),
-  themeToggleBtn: document.getElementById("theme-toggle-btn"),
-  importFile: document.getElementById("import-file"),
-  settingsBtn: document.getElementById("settings-btn"),
-  settingsPanel: document.getElementById("settings-panel"),
-  closeSettingsBtn: document.getElementById("close-settings-btn"),
-  snapToggle: document.getElementById("snap-toggle"),
-  showPointsToggle: document.getElementById("show-points-toggle"),
-  showLabelsToggle: document.getElementById("show-labels-toggle"),
-  showSegmentsToggle: document.getElementById("show-segments-toggle"),
-  showSegmentLengthsToggle: document.getElementById("show-segment-lengths-toggle"),
-  showTextToggle: document.getElementById("show-text-toggle"),
-  showPolygonsToggle: document.getElementById("show-polygons-toggle"),
-  showAnglesToggle: document.getElementById("show-angles-toggle"),
-  showMajorGridToggle: document.getElementById("show-major-grid-toggle"),
-  showMinorGridToggle: document.getElementById("show-minor-grid-toggle"),
-  showGridValuesToggle: document.getElementById("show-grid-values-toggle"),
-  contextMenu: document.getElementById("context-menu"),
-  viewPointsBtn: document.getElementById("view-points-btn"),
-  joinPointsBtn: document.getElementById("join-points-btn"),
-  pointsDialog: document.getElementById("points-dialog"),
-  pointsOutput: document.getElementById("points-output"),
-  copyPointsBtn: document.getElementById("copy-points-btn"),
-  drawPointsBtn: document.getElementById("draw-points-btn"),
-  inlineTextEditor: document.getElementById("inline-text-editor"),
-};
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function round2(value) {
-  return Math.round(value * 100) / 100;
-}
-
-function round3(value) {
-  return Math.round(value * 1000) / 1000;
-}
+// Populated from the DOM in bootstrap() so importing this module does no DOM work.
+const ui = {};
 
 function getCssVar(name, fallback) {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return raw || fallback;
 }
 
-function distanceWorld(a, b) {
-  return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-function areaConversions(areaSqm) {
-  const acres = areaSqm / 4046.8564224;
-  return {
-    hectares: areaSqm / 10000,
-    ares: areaSqm / 100,
-    sqm: areaSqm,
-    acres,
-    cents: acres * 100,
-    sqft: areaSqm * 10.76391041671,
-  };
-}
-
 function polygonPerimeter(pointIds) {
-  if (pointIds.length < 2) {
-    return 0;
-  }
-  let perimeter = 0;
-  for (let index = 0; index < pointIds.length; index += 1) {
-    const next = (index + 1) % pointIds.length;
-    const a = getPointById(pointIds[index]);
-    const b = getPointById(pointIds[next]);
-    if (!a || !b) {
-      continue;
-    }
-    perimeter += distanceWorld(a, b);
-  }
-  return perimeter;
+  return core.polygonPerimeter(state, pointIds);
 }
 
 function saveDisplaySettings() {
@@ -209,9 +106,7 @@ function updateDisplaySetting(key, value) {
 }
 
 function createId() {
-  const id = state.nextId;
-  state.nextId += 1;
-  return id;
+  return core.createId(state);
 }
 
 function getRect() {
@@ -242,24 +137,20 @@ function getScreenPointFromEvent(event) {
   };
 }
 
-function distanceScreen(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
 function getPointById(pointId) {
-  return state.points.find((point) => point.id === pointId) || null;
+  return core.getPointById(state, pointId);
 }
 
 function getSegmentById(segmentId) {
-  return state.segments.find((segment) => segment.id === segmentId) || null;
+  return core.getSegmentById(state, segmentId);
 }
 
 function getPolygonById(polygonId) {
-  return state.polygons.find((polygon) => polygon.id === polygonId) || null;
+  return core.getPolygonById(state, polygonId);
 }
 
 function getTextById(textId) {
-  return state.texts.find((text) => text.id === textId) || null;
+  return core.getTextById(state, textId);
 }
 
 function clearSelection() {
@@ -300,18 +191,7 @@ function getOrderedSelectedPoints() {
 }
 
 function serializeCoreState() {
-  return {
-    version: VERSION,
-    nextId: state.nextId,
-    scale: state.scale,
-    panX: state.panX,
-    panY: state.panY,
-    points: state.points,
-    segments: state.segments,
-    polygons: state.polygons,
-    texts: state.texts,
-    angleAnnotations: state.angleAnnotations,
-  };
+  return core.serializeCoreState(state, VERSION);
 }
 
 function applyCoreState(serialized) {
@@ -375,29 +255,23 @@ function applyCoreState(serialized) {
 
 function pushHistory() {
   const snapshot = JSON.stringify(serializeCoreState());
-  const current = state.history[state.historyIndex];
-  if (snapshot === current) {
+  const result = history.pushSnapshot(state.history, state.historyIndex, snapshot);
+  if (!result.changed) {
     return;
   }
 
-  state.history = state.history.slice(0, state.historyIndex + 1);
-  state.history.push(snapshot);
-
-  if (state.history.length > 120) {
-    state.history.shift();
-  }
-
-  state.historyIndex = state.history.length - 1;
+  state.history = result.history;
+  state.historyIndex = result.historyIndex;
   updateUndoRedoButtons();
 }
 
 function undo() {
-  if (state.historyIndex <= 0) {
+  if (!history.canUndo(state.historyIndex)) {
     setStatus("Nothing to undo.");
     return;
   }
 
-  state.historyIndex -= 1;
+  state.historyIndex = history.undoIndex(state.historyIndex);
   applyCoreState(JSON.parse(state.history[state.historyIndex]));
   updateUndoRedoButtons();
   render();
@@ -405,12 +279,12 @@ function undo() {
 }
 
 function redo() {
-  if (state.historyIndex >= state.history.length - 1) {
+  if (!history.canRedo(state.history, state.historyIndex)) {
     setStatus("Nothing to redo.");
     return;
   }
 
-  state.historyIndex += 1;
+  state.historyIndex = history.redoIndex(state.history, state.historyIndex);
   applyCoreState(JSON.parse(state.history[state.historyIndex]));
   updateUndoRedoButtons();
   render();
@@ -418,8 +292,8 @@ function redo() {
 }
 
 function updateUndoRedoButtons() {
-  ui.undoBtn.disabled = state.historyIndex <= 0;
-  ui.redoBtn.disabled = state.historyIndex >= state.history.length - 1;
+  ui.undoBtn.disabled = !history.canUndo(state.historyIndex);
+  ui.redoBtn.disabled = !history.canRedo(state.history, state.historyIndex);
 }
 
 function setStatus(message) {
@@ -560,147 +434,31 @@ function getSnapPoint(worldPoint, maxDistancePx = 14) {
 }
 
 function addPoint(x, y, options = {}) {
-  const point = {
-    id: createId(),
-    x: round2(x),
-    y: round2(y),
-    label: options.label || `P${state.nextId - 1}`,
-  };
-  state.points.push(point);
-  return point;
+  return core.addPoint(state, x, y, options);
 }
 
 function addSegment(a, b, kind = "segment") {
-  if (a === b) {
-    return null;
-  }
-
-  const exists = state.segments.some((segment) => {
-    return (segment.a === a && segment.b === b) || (segment.a === b && segment.b === a);
-  });
-
-  if (exists) {
-    return null;
-  }
-
-  const segment = { id: createId(), a, b, kind };
-  state.segments.push(segment);
-  return segment;
+  return core.addSegment(state, a, b, kind);
 }
 
 function isSegmentInsidePolygon(aId, bId) {
-  for (const polygon of state.polygons) {
-    const ids = polygon.pointIds;
-    if (!ids.includes(aId) || !ids.includes(bId)) continue;
-    const n = ids.length;
-    for (let i = 0; i < n; i += 1) {
-      const next = (i + 1) % n;
-      if ((ids[i] === aId && ids[next] === bId) || (ids[i] === bId && ids[next] === aId)) {
-        return false; // it's a polygon edge, not a diagonal
-      }
-    }
-    return true;
-  }
-  return false;
+  return core.isSegmentInsidePolygon(state, aId, bId);
 }
 
 function addPolygon(pointIds) {
-  if (!Array.isArray(pointIds) || pointIds.length < 3) {
-    return null;
-  }
-
-  const polygon = {
-    id: createId(),
-    pointIds: [...pointIds],
-    labelOffset: { x: 0, y: 0 },
-  };
-  state.polygons.push(polygon);
-  return polygon;
+  return core.addPolygon(state, pointIds);
 }
 
 function addText(world, content, size = 16) {
-  state.texts.push({
-    id: createId(),
-    x: round2(world.x),
-    y: round2(world.y),
-    content: content || "Text",
-    size,
-  });
+  return core.addText(state, world, content, size);
 }
 
 function normalizeGeometry() {
-  const pointIds = new Set(state.points.map((point) => point.id));
-
-  state.segments = state.segments.filter((segment) => {
-    return pointIds.has(segment.a) && pointIds.has(segment.b) && segment.a !== segment.b;
-  });
-
-  state.polygons = state.polygons
-    .map((polygon) => ({
-      ...polygon,
-      pointIds: polygon.pointIds.filter((pointId) => pointIds.has(pointId)),
-    }))
-    .filter((polygon) => polygon.pointIds.length >= 3);
-
-  state.angleAnnotations = state.angleAnnotations.filter((item) => {
-    return pointIds.has(item.vertexId) && pointIds.has(item.aId) && pointIds.has(item.bId);
-  });
-
-  state.selection.points = new Set([...state.selection.points].filter((id) => pointIds.has(id)));
-  const segmentIds = new Set(state.segments.map((segment) => segment.id));
-  const polygonIds = new Set(state.polygons.map((polygon) => polygon.id));
-  const textIds = new Set(state.texts.map((text) => text.id));
-  state.selection.segments = new Set([...state.selection.segments].filter((id) => segmentIds.has(id)));
-  state.selection.polygons = new Set([...state.selection.polygons].filter((id) => polygonIds.has(id)));
-  state.selection.texts = new Set([...state.selection.texts].filter((id) => textIds.has(id)));
+  return core.normalizeGeometry(state);
 }
 
 function getAllEdges() {
-  const edges = [];
-
-  for (const segment of state.segments) {
-    edges.push({
-      edgeType: "segment",
-      id: segment.id,
-      aId: segment.a,
-      bId: segment.b,
-    });
-  }
-
-  for (const polygon of state.polygons) {
-    for (let index = 0; index < polygon.pointIds.length; index += 1) {
-      const nextIndex = (index + 1) % polygon.pointIds.length;
-      edges.push({
-        edgeType: "polygon-edge",
-        polygonId: polygon.id,
-        edgeIndex: index,
-        aId: polygon.pointIds[index],
-        bId: polygon.pointIds[nextIndex],
-      });
-    }
-  }
-
-  return edges;
-}
-
-function projectPointToSegment(worldPoint, aWorld, bWorld) {
-  const abx = bWorld.x - aWorld.x;
-  const aby = bWorld.y - aWorld.y;
-  const apx = worldPoint.x - aWorld.x;
-  const apy = worldPoint.y - aWorld.y;
-  const mag2 = abx * abx + aby * aby;
-  if (mag2 === 0) {
-    return { point: { ...aWorld }, t: 0 };
-  }
-
-  const t = clamp((apx * abx + apy * aby) / mag2, 0, 1);
-  return {
-    point: {
-      x: aWorld.x + t * abx,
-      y: aWorld.y + t * aby,
-    },
-    t,
-  };
+  return core.getAllEdges(state);
 }
 
 function findNearestEdge(worldPoint, maxDistancePx = 12) {
@@ -732,31 +490,11 @@ function findNearestEdge(worldPoint, maxDistancePx = 12) {
 }
 
 function polygonArea(pointIds) {
-  if (pointIds.length < 3) {
-    return 0;
-  }
-
-  let sum = 0;
-  for (let index = 0; index < pointIds.length; index += 1) {
-    const next = (index + 1) % pointIds.length;
-    const currentPoint = getPointById(pointIds[index]);
-    const nextPoint = getPointById(pointIds[next]);
-    if (!currentPoint || !nextPoint) {
-      continue;
-    }
-    sum += currentPoint.x * nextPoint.y - nextPoint.x * currentPoint.y;
-  }
-
-  return Math.abs(sum) * 0.5;
+  return core.polygonArea(state, pointIds);
 }
 
 function removePoint(pointId) {
-  state.points = state.points.filter((point) => point.id !== pointId);
-  state.segments = state.segments.filter((segment) => segment.a !== pointId && segment.b !== pointId);
-  state.polygons = state.polygons
-    .map((polygon) => ({ ...polygon, pointIds: polygon.pointIds.filter((id) => id !== pointId) }))
-    .filter((polygon) => polygon.pointIds.length >= 3);
-  state.selection.points.delete(pointId);
+  return core.removePoint(state, pointId);
 }
 
 function cancelPolygonDraft() {
@@ -813,20 +551,6 @@ function hitTestPoint(screen, radiusPx = 10) {
     }
   }
   return null;
-}
-
-function distancePointToSegmentScreen(target, a, b) {
-  const abx = b.x - a.x;
-  const aby = b.y - a.y;
-  const apx = target.x - a.x;
-  const apy = target.y - a.y;
-  const mag2 = abx * abx + aby * aby;
-  if (mag2 === 0) {
-    return distanceScreen(target, a);
-  }
-  const t = clamp((apx * abx + apy * aby) / mag2, 0, 1);
-  const proj = { x: a.x + t * abx, y: a.y + t * aby };
-  return distanceScreen(target, proj);
 }
 
 function hitTestSegment(screen, tolerancePx = 7) {
@@ -936,92 +660,11 @@ function hitTestText(screen) {
 }
 
 function pointConnections() {
-  const map = new Map();
-
-  function addNeighbor(aId, bId) {
-    if (!map.has(aId)) {
-      map.set(aId, new Set());
-    }
-    map.get(aId).add(bId);
-  }
-
-  for (const segment of state.segments) {
-    addNeighbor(segment.a, segment.b);
-    addNeighbor(segment.b, segment.a);
-  }
-
-  for (const polygon of state.polygons) {
-    for (let index = 0; index < polygon.pointIds.length; index += 1) {
-      const currentId = polygon.pointIds[index];
-      const nextId = polygon.pointIds[(index + 1) % polygon.pointIds.length];
-      addNeighbor(currentId, nextId);
-      addNeighbor(nextId, currentId);
-    }
-  }
-
-  return map;
-}
-
-function normalizeAngleRadians(value) {
-  let angle = value;
-  while (angle <= -Math.PI) {
-    angle += 2 * Math.PI;
-  }
-  while (angle > Math.PI) {
-    angle -= 2 * Math.PI;
-  }
-  return angle;
-}
-
-function angleCandidateKey(candidate) {
-  const left = Math.min(candidate.aId, candidate.bId);
-  const right = Math.max(candidate.aId, candidate.bId);
-  return `${candidate.vertexId}:${left}:${right}`;
+  return core.pointConnections(state);
 }
 
 function getAngleCandidates() {
-  const candidates = [];
-  const edges = pointConnections();
-
-  for (const [vertexId, neighbors] of edges.entries()) {
-    const neighborIds = [...neighbors];
-    if (neighborIds.length < 2) {
-      continue;
-    }
-
-    for (let i = 0; i < neighborIds.length - 1; i += 1) {
-      for (let j = i + 1; j < neighborIds.length; j += 1) {
-        const aId = neighborIds[i];
-        const bId = neighborIds[j];
-        const vertex = getPointById(vertexId);
-        const a = getPointById(aId);
-        const b = getPointById(bId);
-        if (!vertex || !a || !b) {
-          continue;
-        }
-
-        const v1x = a.x - vertex.x;
-        const v1y = a.y - vertex.y;
-        const v2x = b.x - vertex.x;
-        const v2y = b.y - vertex.y;
-        const m1 = Math.hypot(v1x, v1y);
-        const m2 = Math.hypot(v2x, v2y);
-        if (m1 === 0 || m2 === 0) {
-          continue;
-        }
-
-        const dot = (v1x * v2x + v1y * v2y) / (m1 * m2);
-        const angleDeg = Math.acos(clamp(dot, -1, 1)) * (180 / Math.PI);
-        if (!Number.isFinite(angleDeg)) {
-          continue;
-        }
-
-        candidates.push({ vertexId, aId, bId, angleDeg });
-      }
-    }
-  }
-
-  return candidates;
+  return core.getAngleCandidates(state);
 }
 
 function getAngleArcGeometry(candidate, radiusPx = 26) {
@@ -2207,55 +1850,6 @@ function showPointListDialog(content = pointsToCoordinateList()) {
   ui.pointsOutput.setSelectionRange(0, 0);
 }
 
-function parseCoordinatesText(text) {
-  const rows = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const parsed = [];
-  for (const row of rows) {
-    const commaParts = row.split(",").map((part) => part.trim()).filter(Boolean);
-    let label = "";
-    let xToken = "";
-    let yToken = "";
-
-    if (commaParts.length >= 3) {
-      [label, xToken, yToken] = commaParts;
-    } else if (commaParts.length === 2) {
-      [xToken, yToken] = commaParts;
-    } else {
-      const numberTokens = row.match(/-?\d+(?:\.\d+)?/g);
-      if (!numberTokens || numberTokens.length < 2) {
-        throw new Error(`Could not read coordinates from line: "${row}"`);
-      }
-      xToken = numberTokens[0];
-      yToken = numberTokens[1];
-    }
-
-    const x = Number(xToken);
-    const y = Number(yToken);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      throw new Error(`Invalid numeric coordinates in line: "${row}"`);
-    }
-
-    parsed.push({ label, x, y });
-  }
-
-  return parsed;
-}
-
-function normalizeCoordinateLoop(points) {
-  if (points.length < 4) {
-    return points;
-  }
-
-  const first = points[0];
-  const last = points[points.length - 1];
-  const samePosition = Math.abs(first.x - last.x) < 1e-9 && Math.abs(first.y - last.y) < 1e-9;
-  return samePosition ? points.slice(0, -1) : points;
-}
-
 function pointIsUsedOutsidePolygon(pointId, polygonId) {
   if (state.segments.some((segment) => segment.a === pointId || segment.b === pointId)) {
     return true;
@@ -2798,6 +2392,7 @@ function wireEvents() {
 }
 
 function bootstrap() {
+  Object.assign(ui, queryUi(document));
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   applyTheme(savedTheme === "dark" ? "dark" : "light");
   loadDisplaySettings();
@@ -2811,4 +2406,7 @@ function bootstrap() {
   setStatus("Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y.");
 }
 
-bootstrap();
+// Only auto-run in a browser; importing this module headlessly does no DOM work.
+if (typeof document !== "undefined") {
+  bootstrap();
+}

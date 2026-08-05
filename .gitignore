@@ -109,3 +109,4 @@ blob-report/
 
 # Graphify
 graphify-out
+*.patch
