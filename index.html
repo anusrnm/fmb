@@ -79,6 +79,12 @@
           <button id="zoom-reset-btn" class="icon-btn" type="button" title="Reset zoom and position">
             <span class="icon">100%</span>
           </button>
+          <button id="fit-drawing-btn" class="icon-btn" type="button" title="Fit drawing (F)" aria-label="Fit drawing">
+            <span class="icon">□</span>
+          </button>
+          <button id="fit-selection-btn" class="icon-btn" type="button" title="Fit selection (Shift+F)" aria-label="Fit selection">
+            <span class="icon">▣</span>
+          </button>
           <button id="export-json-btn" class="icon-btn" type="button" title="Export JSON">
             <span class="icon">⇩J</span>
           </button>
@@ -90,6 +96,9 @@
           </button>
           <button id="theme-toggle-btn" class="icon-btn" type="button" title="Toggle theme">
             <span class="icon">◐</span>
+          </button>
+          <button id="help-btn" class="icon-btn" type="button" title="Keyboard commands (?)" aria-label="Keyboard commands">
+            <span class="icon">?</span>
           </button>
           <button id="settings-btn" class="icon-btn settings-btn" type="button" title="Settings">
             <span class="icon">⚙</span>
@@ -109,52 +118,63 @@
 
     <div id="settings-panel" class="settings-panel" hidden>
       <h2>Settings</h2>
-      <p>Display controls are stored locally for this browser.</p>
-      <label class="toggle-row">
-        <input id="snap-toggle" type="checkbox" checked />
-        <span>Snap to nearby points while drawing</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-points-toggle" type="checkbox" checked />
-        <span>Points</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-labels-toggle" type="checkbox" checked />
-        <span>Labels</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-segment-lengths-toggle" type="checkbox" checked />
-        <span>Segment lengths</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-segments-toggle" type="checkbox" checked />
-        <span>Segments</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-text-toggle" type="checkbox" checked />
-        <span>Text and labels</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-polygons-toggle" type="checkbox" checked />
-        <span>Shapes</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-angles-toggle" type="checkbox" checked />
-        <span>Angle annotations</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-major-grid-toggle" type="checkbox" checked />
-        <span>Major grid lines</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-minor-grid-toggle" type="checkbox" checked />
-        <span>Minor grid lines</span>
-      </label>
-      <label class="toggle-row">
-        <input id="show-grid-values-toggle" type="checkbox" checked />
-        <span>Grid values</span>
-      </label>
-      <button id="close-settings-btn" type="button">Close</button>
+      <fieldset>
+        <legend>Canvas</legend>
+        <label class="toggle-row">
+          <input id="show-major-grid-toggle" type="checkbox" checked />
+          <span>Major grid lines</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-minor-grid-toggle" type="checkbox" checked />
+          <span>Minor grid lines</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-grid-values-toggle" type="checkbox" checked />
+          <span>Grid values</span>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Geometry</legend>
+        <label class="toggle-row">
+          <input id="snap-toggle" type="checkbox" checked />
+          <span>Snap to nearby points</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-points-toggle" type="checkbox" checked />
+          <span>Points</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-segments-toggle" type="checkbox" checked />
+          <span>Segments</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-polygons-toggle" type="checkbox" checked />
+          <span>Shapes</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-angles-toggle" type="checkbox" checked />
+          <span>Angle annotations</span>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Labels</legend>
+        <label class="toggle-row">
+          <input id="show-labels-toggle" type="checkbox" checked />
+          <span>Point and area labels</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-segment-lengths-toggle" type="checkbox" checked />
+          <span>Segment lengths</span>
+        </label>
+        <label class="toggle-row">
+          <input id="show-text-toggle" type="checkbox" checked />
+          <span>Text</span>
+        </label>
+      </fieldset>
+      <div class="settings-actions">
+        <button id="reset-settings-btn" type="button">Reset</button>
+        <button id="close-settings-btn" type="button">Close</button>
+      </div>
     </div>
 
     <div id="context-menu" class="context-menu" hidden>
@@ -162,14 +182,37 @@
       <button id="join-points-btn" type="button">Join Selected Points</button>
     </div>
 
-    <dialog id="points-dialog" class="points-dialog">
+    <dialog id="points-dialog" class="points-dialog coordinate-inspector">
       <form method="dialog">
         <h3>Coordinates</h3>
         <p>Edit existing coordinates or paste new ones as <code>label, x, y</code> or <code>x, y</code> (one point per line).</p>
         <textarea id="points-output" rows="12"></textarea>
+        <div id="coordinate-validation" class="coordinate-validation" role="status"></div>
+        <svg id="coordinate-preview" class="coordinate-preview" viewBox="0 0 300 140" aria-label="Coordinate shape preview"></svg>
         <div class="dialog-actions">
           <button id="copy-points-btn" value="copy" type="button">Copy</button>
           <button id="draw-points-btn" value="draw" type="button">Draw Shape</button>
+          <button value="close" type="submit">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="help-dialog" class="points-dialog help-dialog">
+      <form method="dialog">
+        <h3>Keyboard commands</h3>
+        <div class="command-list">
+          <div><span>Select tools</span><kbd>1</kbd><kbd>2</kbd></div>
+          <div><span>Drawing tools</span><kbd>3</kbd>–<kbd>9</kbd><kbd>0</kbd></div>
+          <div><span>Undo / redo</span><kbd>Ctrl</kbd>+<kbd>Z</kbd><kbd>Ctrl</kbd>+<kbd>Y</kbd></div>
+          <div><span>Zoom</span><kbd>+</kbd><kbd>-</kbd></div>
+          <div><span>Fit drawing / selection</span><kbd>F</kbd><kbd>Shift</kbd>+<kbd>F</kbd></div>
+          <div><span>Coordinates</span><kbd>C</kbd></div>
+          <div><span>Insert point on hovered edge</span><kbd>I</kbd></div>
+          <div><span>Nudge selection</span><kbd>Arrow keys</kbd></div>
+          <div><span>Delete selection</span><kbd>Delete</kbd></div>
+          <div><span>Cancel tool</span><kbd>Esc</kbd></div>
+        </div>
+        <div class="dialog-actions">
           <button value="close" type="submit">Close</button>
         </div>
       </form>

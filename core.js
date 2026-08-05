@@ -19,6 +19,7 @@ export function createState() {
     panY: 0,
     hoverWorld: null,
     hoverScreen: null,
+    hoverTarget: null,
     mouseDownScreen: null,
     drag: null,
     boxSelect: null,

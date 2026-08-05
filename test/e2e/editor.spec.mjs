@@ -38,10 +38,32 @@ test("draws a polygon from the coordinate dialog and supports undo and redo", as
 
   await expect(page.getByRole("status")).toContainText("Shape created from 4 coordinates");
   await expect(page.locator("#graph polygon")).toHaveCount(2);
-  await page.getByTitle("Undo (Ctrl+Z)").click();
+  await expect(page.locator("#undo-btn")).toHaveAttribute("title", /Undo Create shape from coordinates/);
+  await page.locator("#undo-btn").click();
   await expect(page.locator("#graph polygon")).toHaveCount(1);
-  await page.getByTitle("Redo (Ctrl+Y)").click();
+  await expect(page.locator("#redo-btn")).toHaveAttribute("title", /Redo Create shape from coordinates/);
+  await page.locator("#redo-btn").click();
   await expect(page.locator("#graph polygon")).toHaveCount(2);
+});
+
+test("opens command help from the keyboard", async ({ page }) => {
+  await page.keyboard.press("?");
+  await expect(page.getByRole("heading", { name: "Keyboard commands" })).toBeVisible();
+  await expect(page.locator("#help-dialog")).toContainText("Fit drawing / selection");
+});
+
+test("validates and previews coordinates in a non-modal inspector", async ({ page }) => {
+  await page.keyboard.press("c");
+  await expect(page.locator("#points-dialog")).toBeVisible();
+  await page.locator("#points-output").fill("A, 0, 0\ninvalid");
+  await expect(page.locator("#coordinate-validation")).toHaveAttribute("data-tone", "error");
+  await expect(page.locator("#draw-points-btn")).toBeDisabled();
+
+  await page.locator("#points-output").fill("A, 0, 0\nB, 5, 0\nC, 2, 4");
+  await expect(page.locator("#coordinate-validation")).toContainText("3 coordinates ready");
+  await expect(page.locator("#coordinate-preview polygon")).toHaveCount(1);
+  await clickGraph(page, 760, 500);
+  await expect(page.locator("#points-dialog")).toBeVisible();
 });
 
 test("creates a segment, inserts its midpoint, and adds text", async ({ page }) => {
@@ -68,6 +90,34 @@ test("zooms and resets the viewport", async ({ page }) => {
   await expect(zoomButton).toHaveAttribute("title", /115%/);
   await zoomButton.click();
   await expect(zoomButton).toHaveAttribute("title", /100%/);
+});
+
+test("fits the drawing and current selection", async ({ page }) => {
+  await page.getByLabel("Fit drawing").click();
+  await expect(page.getByRole("status")).toContainText("Fitted drawing to viewport");
+
+  await clickGraph(page, 373, 434);
+  await page.getByLabel("Fit selection").click();
+  await expect(page.getByRole("status")).toContainText("Fitted selection to viewport");
+});
+
+test("previews the pointer target before selection", async ({ page }) => {
+  const point = page.locator("#graph circle").first();
+  const box = await point.boundingBox();
+  if (!box) {
+    throw new Error("Expected a point to hover.");
+  }
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await expect(page.locator("#graph circle").first()).toHaveAttribute("fill", "#0891b2");
+});
+
+test("resets persisted display settings", async ({ page }) => {
+  await page.getByTitle("Settings").click();
+  await page.locator("#show-points-toggle").uncheck();
+  await expect(page.locator("#graph circle")).toHaveCount(0);
+  await page.locator("#reset-settings-btn").click();
+  await expect(page.locator("#show-points-toggle")).toBeChecked();
+  await expect(page.locator("#graph circle")).toHaveCount(4);
 });
 
 test("drafts a polygon by closing it at the first vertex", async ({ page }) => {

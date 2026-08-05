@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.5.1";
+const VERSION = "2.6.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -47,6 +47,7 @@ let pendingRenderFrame = 0;
 let renderQueued = false;
 let cachedGridKey = "";
 let cachedGridLayer = null;
+let historyActions = [];
 const perfCounters = {
   renderNowCalls: 0,
   gridCacheHits: 0,
@@ -137,6 +138,17 @@ function updateDisplaySetting(key, value) {
   state.display[key] = Boolean(value);
   saveDisplaySettings();
   render();
+}
+
+function resetDisplaySettings() {
+  state.snapToPoints = true;
+  for (const key of Object.keys(state.display)) {
+    state.display[key] = true;
+  }
+  syncDisplayControlsToState();
+  saveDisplaySettings();
+  render();
+  setStatus("Display settings reset.", "success");
 }
 
 function createId() {
@@ -323,13 +335,19 @@ function applyCoreState(serialized) {
   closeInlineTextEditor(false, false);
 }
 
-function pushHistory() {
+function pushHistory(action = "Change diagram") {
   const snapshot = JSON.stringify(serializeCoreState());
   const result = history.pushSnapshot(state.history, state.historyIndex, snapshot);
   if (!result.changed) {
     return;
   }
 
+  const nextActions = historyActions.slice(0, state.historyIndex + 1);
+  nextActions.push(action);
+  while (nextActions.length > result.history.length) {
+    nextActions.shift();
+  }
+  historyActions = nextActions;
   state.history = result.history;
   state.historyIndex = result.historyIndex;
   updateUndoRedoButtons();
@@ -337,37 +355,44 @@ function pushHistory() {
 
 function undo() {
   if (!history.canUndo(state.historyIndex)) {
-    setStatus("Nothing to undo.");
+    setStatus("Nothing to undo.", "warning");
     return;
   }
 
+  const action = historyActions[state.historyIndex] || "change";
   state.historyIndex = history.undoIndex(state.historyIndex);
   applyCoreState(JSON.parse(state.history[state.historyIndex]));
   updateUndoRedoButtons();
   render();
-  setStatus("Undo complete.");
+  setStatus(`Undid: ${action}.`, "success");
 }
 
 function redo() {
   if (!history.canRedo(state.history, state.historyIndex)) {
-    setStatus("Nothing to redo.");
+    setStatus("Nothing to redo.", "warning");
     return;
   }
 
   state.historyIndex = history.redoIndex(state.history, state.historyIndex);
+  const action = historyActions[state.historyIndex] || "change";
   applyCoreState(JSON.parse(state.history[state.historyIndex]));
   updateUndoRedoButtons();
   render();
-  setStatus("Redo complete.");
+  setStatus(`Redid: ${action}.`, "success");
 }
 
 function updateUndoRedoButtons() {
   ui.undoBtn.disabled = !history.canUndo(state.historyIndex);
   ui.redoBtn.disabled = !history.canRedo(state.history, state.historyIndex);
+  const undoAction = historyActions[state.historyIndex] || "change";
+  const redoAction = historyActions[state.historyIndex + 1] || "change";
+  ui.undoBtn.title = ui.undoBtn.disabled ? "Nothing to undo" : `Undo ${undoAction} (Ctrl+Z)`;
+  ui.redoBtn.title = ui.redoBtn.disabled ? "Nothing to redo" : `Redo ${redoAction} (Ctrl+Y)`;
 }
 
-function setStatus(message) {
+function setStatus(message, tone = "info") {
   ui.status.textContent = message;
+  ui.status.dataset.tone = tone;
 }
 
 function isInlineEditorOpen() {
@@ -415,11 +440,11 @@ function closeInlineTextEditor(save, switchToSelect) {
       const target = getTextById(payload.textId);
       if (target && value) {
         target.content = value;
-        pushHistory();
+        pushHistory("Edit text");
       }
     } else if (value) {
       addText(payload.world, value);
-      pushHistory();
+      pushHistory("Add text");
     }
     render();
   }
@@ -447,7 +472,7 @@ function insertPointOnEdge(edgePick, worldPoint) {
 function joinSelectedPoints() {
   const points = getOrderedSelectedPoints();
   if (points.length < 2) {
-    setStatus("Select at least two points to join.");
+    setStatus("Select at least two points to join.", "warning");
     return;
   }
 
@@ -460,13 +485,13 @@ function joinSelectedPoints() {
   }
 
   if (createdCount === 0) {
-    setStatus("No new joins were created.");
+    setStatus("No new joins were created.", "warning");
     return;
   }
 
-  pushHistory();
+  pushHistory("Join selected points");
   render();
-  setStatus(`Created ${createdCount} join(s).`);
+  setStatus(`Created ${createdCount} join(s).`, "success");
 }
 
 function applyTheme(theme) {
@@ -607,9 +632,9 @@ function removeSelectedObjects() {
 
   clearSelection();
   normalizeGeometry();
-  pushHistory();
+  pushHistory("Delete selection");
   render();
-  setStatus("Selection deleted.");
+  setStatus("Selection deleted.", "success");
 }
 
 function hitTestPoint(screen, radiusPx = 10) {
@@ -729,6 +754,27 @@ function hitTestText(screen) {
   return null;
 }
 
+function resolvePointerTarget(screen) {
+  const point = hitTestPoint(screen);
+  if (point) {
+    return { kind: "point", item: point };
+  }
+  const text = hitTestText(screen);
+  if (text) {
+    return { kind: "text", item: text };
+  }
+  const segment = hitTestSegment(screen);
+  if (segment) {
+    return { kind: "segment", item: segment };
+  }
+  const polygonLabel = hitTestPolygonLabel(screen);
+  if (polygonLabel) {
+    return { kind: "polygon-label", item: polygonLabel };
+  }
+  const polygon = hitTestPolygon(screen);
+  return polygon ? { kind: "polygon", item: polygon } : null;
+}
+
 function pointConnections() {
   return core.pointConnections(state);
 }
@@ -826,7 +872,7 @@ function setMode(mode) {
   ui.graph.classList.remove(...MODES.map((entry) => `mode-${entry}`));
   ui.graph.classList.add(`mode-${mode}`);
 
-  if (globalThis.matchMedia("(max-width: 920px)").matches) {
+  if (globalThis.matchMedia("(max-width: 1024px)").matches) {
     ui.toolMenu.classList.remove("open");
     ui.mobileMenuToggle.setAttribute("aria-expanded", "false");
   }
@@ -1065,13 +1111,15 @@ function renderNow() {
 
     const polygonScreenPoints = points.map((point) => worldToScreen(point));
     const selected = state.selection.polygons.has(polygon.id);
+    const hovered = ["polygon", "polygon-label"].includes(state.hoverTarget?.kind) &&
+      state.hoverTarget.item.id === polygon.id;
 
     if (state.display.showPolygons) {
       polygonsGroup.append(
         makePolygon(polygonScreenPoints, {
-          fill: selected ? "rgba(245, 158, 11, 0.28)" : "rgba(15, 118, 110, 0.16)",
-          stroke: selected ? "#b45309" : "#0f766e",
-          "stroke-width": selected ? 2.2 : 1.6,
+          fill: selected ? "rgba(245, 158, 11, 0.28)" : hovered ? "rgba(15, 118, 110, 0.24)" : "rgba(15, 118, 110, 0.16)",
+          stroke: selected ? "#b45309" : hovered ? "#0891b2" : "#0f766e",
+          "stroke-width": selected || hovered ? 2.2 : 1.6,
         })
       );
     }
@@ -1189,6 +1237,7 @@ function renderNow() {
     const aScreen = worldToScreen(a);
     const bScreen = worldToScreen(b);
     const selected = state.selection.segments.has(segment.id);
+    const hovered = state.hoverTarget?.kind === "segment" && state.hoverTarget.item.id === segment.id;
     const color =
       segment.kind === "parallel"
         ? "#0e7490"
@@ -1199,8 +1248,8 @@ function renderNow() {
       const isDiagonal = isSegmentInsidePolygon(segment.a, segment.b);
       segmentsGroup.append(
         makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
-          stroke: selected ? "#f59e0b" : color,
-          "stroke-width": selected ? 3.4 : 2.3,
+          stroke: selected ? "#f59e0b" : hovered ? "#0891b2" : color,
+          "stroke-width": selected ? 3.4 : hovered ? 3 : 2.3,
           "stroke-linecap": "round",
           ...(isDiagonal && { "stroke-dasharray": "6 4" }),
         })
@@ -1221,12 +1270,13 @@ function renderNow() {
   for (const point of state.points) {
     const screenPoint = worldToScreen(point);
     const selected = state.selection.points.has(point.id);
+    const hovered = state.hoverTarget?.kind === "point" && state.hoverTarget.item.id === point.id;
     if (state.display.showPoints) {
       pointsGroup.append(
-        makeCircle(screenPoint.x, screenPoint.y, selected ? 6.8 : 5.4, {
-          fill: selected ? "#f59e0b" : "#155e75",
+        makeCircle(screenPoint.x, screenPoint.y, selected ? 6.8 : hovered ? 6.4 : 5.4, {
+          fill: selected ? "#f59e0b" : hovered ? "#0891b2" : "#155e75",
           stroke: "#ffffff",
-          "stroke-width": selected ? 2.2 : 1.6,
+          "stroke-width": selected || hovered ? 2.2 : 1.6,
         })
       );
     }
@@ -1243,9 +1293,14 @@ function renderNow() {
     for (const text of state.texts) {
       const screenPoint = worldToScreen(text);
       const selected = state.selection.texts.has(text.id);
+      const hovered = state.hoverTarget?.kind === "text" && state.hoverTarget.item.id === text.id;
       labelsGroup.append(
         makeText(screenPoint.x, screenPoint.y, text.content, {
-          class: selected ? "user-text user-text-selected" : "user-text",
+          class: selected
+            ? "user-text user-text-selected"
+            : hovered
+              ? "user-text user-text-hovered"
+              : "user-text",
           "font-size": text.size,
         })
       );
@@ -1415,16 +1470,16 @@ function handleModeAction(screen, world) {
 
     clearSelection();
     state.selection.points.add(point.id);
-    pushHistory();
+    pushHistory("Place point");
     render();
-    setStatus(`Point placed at (${round2(point.x)}, ${round2(point.y)}).`);
+    setStatus(`Point placed at (${round2(point.x)}, ${round2(point.y)}).`, "success");
     return;
   }
 
   if (state.mode === "midpoint") {
     const edgePick = findNearestEdge(world);
     if (!edgePick) {
-      setStatus("No nearby line found. Click closer to a segment or polygon edge.");
+      setStatus("No nearby line found. Click closer to a segment or polygon edge.", "warning");
       return;
     }
 
@@ -1440,9 +1495,9 @@ function handleModeAction(screen, world) {
     };
     const inserted = insertPointOnEdge(edgePick, midpoint);
 
-    pushHistory();
+    pushHistory("Insert midpoint");
     render();
-    setStatus(`Midpoint inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`);
+    setStatus(`Midpoint inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`, "success");
     return;
   }
 
@@ -1461,7 +1516,7 @@ function handleModeAction(screen, world) {
 
     const first = state.construction.firstPointId;
     if (first === point.id) {
-      setStatus("Pick a different second point.");
+      setStatus("Pick a different second point.", "warning");
       return;
     }
 
@@ -1469,12 +1524,12 @@ function handleModeAction(screen, world) {
     state.construction = null;
     if (!segment) {
       render();
-      setStatus("That segment already exists.");
+      setStatus("That segment already exists.", "warning");
       return;
     }
-    pushHistory();
+    pushHistory("Create segment");
     render();
-    setStatus("Segment created.");
+    setStatus("Segment created.", "success");
     return;
   }
 
@@ -1482,7 +1537,7 @@ function handleModeAction(screen, world) {
     if (!state.construction || state.construction.tool !== state.mode || !state.construction.baseSegmentId) {
       const segmentHit = hitTestSegment(screen);
       if (!segmentHit) {
-        setStatus("Select a base segment first.");
+        setStatus("Select a base segment first.", "warning");
         return;
       }
       state.construction = {
@@ -1531,9 +1586,9 @@ function handleModeAction(screen, world) {
     const p2 = addPoint(world.x + ux * halfLength, world.y + uy * halfLength);
     addSegment(p1.id, p2.id, state.mode);
     state.construction = null;
-    pushHistory();
+    pushHistory(`Create ${state.mode} segment`);
     render();
-    setStatus(`${state.mode === "parallel" ? "Parallel" : "Perpendicular"} segment created.`);
+    setStatus(`${state.mode === "parallel" ? "Parallel" : "Perpendicular"} segment created.`, "success");
     return;
   }
 
@@ -1545,15 +1600,15 @@ function handleModeAction(screen, world) {
       const area = polygonArea(state.polygonDraft);
       state.polygonDraft = [];
       state.polygonDraftCreatedPointIds.clear();
-      pushHistory();
+      pushHistory("Create polygon");
       render();
-      setStatus(`Polygon closed. Area: ${round2(area)} sq units.`);
+      setStatus(`Polygon closed. Area: ${round2(area)} sq units.`, "success");
       return;
     }
 
     const point = hitPoint || addPoint(world.x, world.y);
     if (state.polygonDraft.includes(point.id)) {
-      setStatus("That vertex already exists in the current polygon path.");
+      setStatus("That vertex already exists in the current polygon path.", "warning");
       return;
     }
 
@@ -1575,7 +1630,7 @@ function handleModeAction(screen, world) {
     const candidates = getAngleCandidates();
     const hit = hitTestAngleCandidate(screen, candidates);
     if (!hit) {
-      setStatus("No angle candidate at this location.");
+      setStatus("No angle candidate at this location.", "warning");
       return;
     }
 
@@ -1583,9 +1638,9 @@ function handleModeAction(screen, world) {
     const existingIndex = state.angleAnnotations.findIndex((item) => angleCandidateKey(item) === key);
     if (existingIndex >= 0) {
       state.angleAnnotations.splice(existingIndex, 1);
-      pushHistory();
+      pushHistory("Remove angle annotation");
       render();
-      setStatus("Angle annotation removed.");
+      setStatus("Angle annotation removed.", "success");
       return;
     }
 
@@ -1595,9 +1650,9 @@ function handleModeAction(screen, world) {
       aId: hit.aId,
       bId: hit.bId,
     });
-    pushHistory();
+    pushHistory("Add angle annotation");
     render();
-    setStatus(`Angle annotation saved: ${round2(hit.angleDeg)}deg.`);
+    setStatus(`Angle annotation saved: ${round2(hit.angleDeg)}deg.`, "success");
     return;
   }
 
@@ -1656,11 +1711,12 @@ function handlePointerDown(event) {
     return;
   }
 
-  const hitPoint = hitTestPoint(screen);
-  const hitText = hitTestText(screen);
-  const hitSegment = hitTestSegment(screen);
-  const hitPolygonLabel = hitTestPolygonLabel(screen);
-  const hitPolygon = !hitPolygonLabel && hitTestPolygon(screen);
+  const target = resolvePointerTarget(screen);
+  const hitPoint = target?.kind === "point" ? target.item : null;
+  const hitText = target?.kind === "text" ? target.item : null;
+  const hitSegment = target?.kind === "segment" ? target.item : null;
+  const hitPolygonLabel = target?.kind === "polygon-label" ? target.item : null;
+  const hitPolygon = target?.kind === "polygon" ? target.item : null;
 
   const additive = event.ctrlKey || event.metaKey;
 
@@ -1752,6 +1808,7 @@ function handlePointerMove(event) {
   const world = screenToWorld(screen);
   state.hoverScreen = screen;
   state.hoverWorld = world;
+  state.hoverTarget = state.mode === "select" && !state.drag ? resolvePointerTarget(screen) : null;
 
   if (state.mode === "midpoint") {
     const edgePick = findNearestEdge(world);
@@ -1902,7 +1959,7 @@ function handlePointerUp(event) {
   }
 
   if (state.drag?.type === "move-points" || state.drag?.type === "move-text" || state.drag?.type === "move-polygon-label") {
-    pushHistory();
+    pushHistory("Move selection");
   }
 
   state.drag = null;
@@ -1914,6 +1971,7 @@ function handlePointerUp(event) {
   if (event.pointerType === "touch") {
     state.hoverWorld = null;
     state.hoverScreen = null;
+    state.hoverTarget = null;
   }
 }
 
@@ -1951,6 +2009,41 @@ function resetZoomAndPan() {
   setStatus("Zoom and pan reset.");
 }
 
+function fitViewport(selectionOnly = false) {
+  const pointIds = selectionOnly
+    ? getSelectedPointIds()
+    : new Set(state.points.map((point) => point.id));
+  const points = [...pointIds].map((pointId) => getPointById(pointId)).filter(Boolean);
+  const texts = selectionOnly
+    ? [...state.selection.texts].map((textId) => getTextById(textId)).filter(Boolean)
+    : state.texts;
+  const anchors = [...points, ...texts];
+  if (anchors.length === 0) {
+    setStatus(selectionOnly ? "Select geometry or text to fit." : "The drawing is empty.", "warning");
+    return;
+  }
+
+  const rect = getRect();
+  const padding = Math.min(80, Math.max(32, Math.min(rect.width, rect.height) * 0.1));
+  const minX = Math.min(...anchors.map((item) => item.x));
+  const maxX = Math.max(...anchors.map((item) => item.x));
+  const minY = Math.min(...anchors.map((item) => item.y));
+  const maxY = Math.max(...anchors.map((item) => item.y));
+  const width = Math.max(maxX - minX, 1);
+  const height = Math.max(maxY - minY, 1);
+  state.scale = clamp(
+    Math.min((rect.width - padding * 2) / width, (rect.height - padding * 2) / height),
+    MIN_SCALE,
+    MAX_SCALE
+  );
+  const centerX = (minX + maxX) * 0.5;
+  const centerY = (minY + maxY) * 0.5;
+  state.panX = -centerX * state.scale;
+  state.panY = centerY * state.scale;
+  render();
+  setStatus(selectionOnly ? "Fitted selection to viewport." : "Fitted drawing to viewport.", "success");
+}
+
 function zoomPercentText() {
   const percent = (state.scale / 32) * 100;
   const rounded = Math.round(percent * 100) / 100;
@@ -1980,9 +2073,58 @@ function pointsToCoordinateList() {
   return points.map((point) => `${point.label}, ${round2(point.x)}, ${round2(point.y)}`).join("\n");
 }
 
+function updateCoordinateInspector() {
+  ui.coordinatePreview.replaceChildren();
+  let points;
+  try {
+    points = normalizeCoordinateLoop(parseCoordinatesText(ui.pointsOutput.value));
+  } catch (error) {
+    ui.coordinateValidation.textContent = error instanceof Error ? error.message : "Could not parse coordinates.";
+    ui.coordinateValidation.dataset.tone = "error";
+    ui.drawPointsBtn.disabled = true;
+    return;
+  }
+
+  const canDraw = points.length >= 3;
+  ui.coordinateValidation.textContent = canDraw
+    ? `${points.length} coordinates ready.`
+    : `${points.length} coordinate${points.length === 1 ? "" : "s"}; at least 3 required.`;
+  ui.coordinateValidation.dataset.tone = canDraw ? "success" : "warning";
+  ui.drawPointsBtn.disabled = !canDraw;
+
+  if (points.length < 2) {
+    return;
+  }
+
+  const width = 300;
+  const height = 140;
+  const padding = 14;
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const scale = Math.min(
+    (width - padding * 2) / Math.max(maxX - minX, 1),
+    (height - padding * 2) / Math.max(maxY - minY, 1)
+  );
+  const previewPoints = points.map((point) => ({
+    x: padding + (point.x - minX) * scale,
+    y: height - padding - (point.y - minY) * scale,
+  }));
+  const preview = canDraw
+    ? makePolygon(previewPoints, { class: "coordinate-preview-shape" })
+    : makePolyline(previewPoints, { class: "coordinate-preview-shape" });
+  ui.coordinatePreview.append(preview);
+}
+
 function showPointListDialog(content = pointsToCoordinateList()) {
   ui.pointsOutput.value = content;
-  ui.pointsDialog.showModal();
+  updateCoordinateInspector();
+  if (!ui.pointsDialog.open) {
+    ui.pointsDialog.show();
+  }
   ui.pointsOutput.focus();
   ui.pointsOutput.setSelectionRange(0, 0);
 }
@@ -2004,7 +2146,7 @@ function drawShapeFromCoordinateInput() {
   try {
     parsed = parseCoordinatesText(ui.pointsOutput.value);
   } catch (error) {
-    setStatus(error instanceof Error ? error.message : "Could not parse coordinates.");
+    setStatus(error instanceof Error ? error.message : "Could not parse coordinates.", "error");
     return;
   }
 
@@ -2057,10 +2199,10 @@ function drawShapeFromCoordinateInput() {
     clearSelection();
     state.selection.polygons.add(polygon.id);
     normalizeGeometry();
-    pushHistory();
+    pushHistory("Update shape coordinates");
     render();
     ui.pointsDialog.close();
-    setStatus(`Updated selected shape with ${nextPointIds.length} coordinates.`);
+    setStatus(`Updated selected shape with ${nextPointIds.length} coordinates.`, "success");
     return;
   }
 
@@ -2072,16 +2214,16 @@ function drawShapeFromCoordinateInput() {
 
   const polygon = addPolygon(pointIds);
   if (!polygon) {
-    setStatus("Could not create shape from provided coordinates.");
+    setStatus("Could not create shape from provided coordinates.", "error");
     return;
   }
 
   clearSelection();
   state.selection.polygons.add(polygon.id);
-  pushHistory();
+  pushHistory("Create shape from coordinates");
   render();
   ui.pointsDialog.close();
-  setStatus(`Shape created from ${pointIds.length} coordinates.`);
+  setStatus(`Shape created from ${pointIds.length} coordinates.`, "success");
 }
 
 function hideContextMenu() {
@@ -2151,9 +2293,9 @@ function importFromText(filename, text) {
         throw new Error("This JSON file does not match FMB Studio format.");
       }
       applyCoreState(payload);
-      pushHistory();
+      pushHistory("Import JSON diagram");
       render();
-      setStatus("JSON import complete.");
+      setStatus("JSON import complete.", "success");
       return;
     }
 
@@ -2167,15 +2309,15 @@ function importFromText(filename, text) {
 
       const payload = JSON.parse(metadata.textContent);
       applyCoreState(payload);
-      pushHistory();
+      pushHistory("Import SVG diagram");
       render();
-      setStatus("SVG import complete.");
+      setStatus("SVG import complete.", "success");
       return;
     }
 
     throw new Error("Unsupported file type. Use JSON or SVG.");
   } catch (error) {
-    setStatus(`Import failed: ${error instanceof Error ? error.message : "Invalid file"}`);
+    setStatus(`Import failed: ${error instanceof Error ? error.message : "Invalid file"}`, "error");
   }
 }
 
@@ -2216,6 +2358,39 @@ function isEditingTextInput(target) {
 
 function handleKeyDown(event) {
   if (isEditingTextInput(event.target)) {
+    return;
+  }
+
+  if (event.key === "?" && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    ui.helpDialog.showModal();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "c" && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    showPointListDialog();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "i" && !event.ctrlKey && !event.metaKey && state.hoverWorld) {
+    const edgePick = findNearestEdge(state.hoverWorld);
+    if (!edgePick) {
+      setStatus("Move the pointer closer to an edge before inserting a point.", "warning");
+      return;
+    }
+    const inserted = insertPointOnEdge(edgePick, edgePick.projection.point);
+    clearSelection();
+    state.selection.points.add(inserted.id);
+    pushHistory("Insert point on edge");
+    render();
+    setStatus(`Point inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`, "success");
+    return;
+  }
+
+  if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    fitViewport(event.shiftKey);
     return;
   }
 
@@ -2280,7 +2455,7 @@ function handleKeyDown(event) {
         text.size = clamp(text.size + delta, 10, 80);
       }
     }
-    pushHistory();
+    pushHistory("Resize text");
     render();
     setStatus(`Text size adjusted.`);
     return;
@@ -2325,7 +2500,7 @@ function handleKeyDown(event) {
       text.x = round2(text.x + dx);
       text.y = round2(text.y + dy);
     }
-    pushHistory();
+    pushHistory("Nudge selection");
     render();
   }
 }
@@ -2352,7 +2527,7 @@ function handleDoubleClick(event) {
   const inserted = insertPointOnEdge(edgePick, edgePick.projection.point);
   clearSelection();
   state.selection.points.add(inserted.id);
-  pushHistory();
+  pushHistory("Insert point on edge");
   render();
   setStatus(`Point inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`);
 }
@@ -2401,10 +2576,13 @@ function wireEvents() {
   addTrackedEvent(ui.zoomInBtn, "click", () => zoomBy(1.15));
   addTrackedEvent(ui.zoomOutBtn, "click", () => zoomBy(1 / 1.15));
   addTrackedEvent(ui.zoomResetBtn, "click", resetZoomAndPan);
+  addTrackedEvent(ui.fitDrawingBtn, "click", () => fitViewport(false));
+  addTrackedEvent(ui.fitSelectionBtn, "click", () => fitViewport(true));
   addTrackedEvent(ui.exportJsonBtn, "click", exportJson);
   addTrackedEvent(ui.exportSvgBtn, "click", exportSvg);
   addTrackedEvent(ui.importBtn, "click", () => ui.importFile.click());
   addTrackedEvent(ui.themeToggleBtn, "click", toggleTheme);
+  addTrackedEvent(ui.helpBtn, "click", () => ui.helpDialog.showModal());
   addTrackedEvent(ui.importFile, "change", handleImport);
 
   addTrackedEvent(ui.settingsBtn, "click", () => {
@@ -2413,6 +2591,7 @@ function wireEvents() {
   addTrackedEvent(ui.closeSettingsBtn, "click", () => {
     ui.settingsPanel.hidden = true;
   });
+  addTrackedEvent(ui.resetSettingsBtn, "click", resetDisplaySettings);
   addTrackedEvent(ui.snapToggle, "change", () => {
     state.snapToPoints = ui.snapToggle.checked;
     saveDisplaySettings();
@@ -2438,6 +2617,7 @@ function wireEvents() {
     if (!state.drag) {
       state.hoverWorld = null;
       state.hoverScreen = null;
+      state.hoverTarget = null;
       state.midpointHoverWorld = null;
       render();
     }
@@ -2486,6 +2666,8 @@ function wireEvents() {
       setStatus("Coordinates copied.");
     }
   });
+
+  addTrackedEvent(ui.pointsOutput, "input", updateCoordinateInspector);
 
   addTrackedEvent(ui.drawPointsBtn, "click", () => {
     drawShapeFromCoordinateInput();
@@ -2544,6 +2726,7 @@ function bootstrap() {
   flushRender();
   disposeWiredEvents?.();
   disposeWiredEvents = null;
+  historyActions = [];
   exposePerfCounters();
   Object.assign(ui, queryUi(document));
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
@@ -2554,7 +2737,7 @@ function bootstrap() {
   initializeDemoGeometry();
   disposeWiredEvents = wireEvents();
   setMode("select");
-  pushHistory();
+  pushHistory("Initialize diagram");
   render();
   setStatus("Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y.");
 }

@@ -26,6 +26,13 @@ test("queryUi resolves elements by id and returns them", () => {
   const ui = queryUi(doc);
   assert.deepEqual(ui.graph, { id: "graph" });
   assert.deepEqual(ui.versionBadge, { id: "version-badge" });
+  assert.deepEqual(ui.helpBtn, { id: "help-btn" });
+  assert.deepEqual(ui.helpDialog, { id: "help-dialog" });
+  assert.deepEqual(ui.fitDrawingBtn, { id: "fit-drawing-btn" });
+  assert.deepEqual(ui.fitSelectionBtn, { id: "fit-selection-btn" });
+  assert.deepEqual(ui.coordinateValidation, { id: "coordinate-validation" });
+  assert.deepEqual(ui.coordinatePreview, { id: "coordinate-preview" });
+  assert.deepEqual(ui.resetSettingsBtn, { id: "reset-settings-btn" });
   assert.deepEqual(ui.inlineTextEditor, { id: "inline-text-editor" });
   assert.ok(doc.byId.includes("export-json-btn"));
 });
