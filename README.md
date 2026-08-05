@@ -56,10 +56,28 @@ deno run --allow-env --allow-net --allow-read main.ts
 - Alt + + / -: Fine zoom (1.05x)
 - 1..9, 0: Switch modes in toolbar order
 
-## Verify
+## Test
+
+Install the test dependencies once:
 
 ```bash
-node --check app.js
-deno check app.js
-deno test --allow-env distance.test.mjs main_test.ts
+npm install
+```
+
+Run the complete suite:
+
+```bash
+npm test
+```
+
+This runs:
+
+- `npm run test:unit`: Node unit tests for the geometry helpers in `distance.js`. Coverage is enforced at 90% for lines, statements, functions, and branches.
+- `npm run test:e2e`: Playwright tests in Chromium. The test server starts automatically and covers editor interactions including drawing, selection, construction tools, angle annotations, themes, import/export, and zoom.
+
+Run either suite independently when working on a focused change:
+
+```bash
+npm run test:unit
+npm run test:e2e
 ```

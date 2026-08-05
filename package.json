@@ -1,0 +1,14 @@
+{
+  "name": "fmb-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:unit": "c8 --all --include=distance.js --check-coverage --lines 90 --functions 90 --branches 90 --statements 90 node --test test/unit/**/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "c8": "^10.1.3"
+  }
+}

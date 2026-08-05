@@ -101,5 +101,11 @@ coverage/
 node_modules/
 npm-debug.log*
 
+# Playwright test artifacts
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
 # Graphify
 graphify-out
