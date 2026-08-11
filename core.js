@@ -8,11 +8,17 @@ export function createState() {
   return {
     mode: "select",
     snapToPoints: true,
+    snapToGrid: false,
+    snapToMidpoints: false,
+    snapToIntersections: false,
+    snapAngleStep: false,
+    snapAngleStepDegrees: 15,
     points: [],
     segments: [],
     polygons: [],
     texts: [],
     angleAnnotations: [],
+    constraints: [],
     nextId: 1,
     scale: 32,
     panX: 0,
@@ -132,7 +138,71 @@ export function removePoint(state, pointId) {
   state.polygons = state.polygons
     .map((polygon) => ({ ...polygon, pointIds: polygon.pointIds.filter((id) => id !== pointId) }))
     .filter((polygon) => polygon.pointIds.length >= 3);
+  state.constraints = state.constraints.filter((constraint) => constraint.pointId !== pointId);
   state.selection.points.delete(pointId);
+}
+
+export function normalizeConstraints(state) {
+  const pointIds = new Set(state.points.map((point) => point.id));
+  state.constraints = state.constraints.filter((constraint) => {
+    if (!constraint || typeof constraint !== "object") {
+      return false;
+    }
+    if (constraint.type === "point-lock") {
+      return Number.isInteger(constraint.pointId) && pointIds.has(constraint.pointId);
+    }
+    return false;
+  });
+
+  const seenPointLocks = new Set();
+  state.constraints = state.constraints.filter((constraint) => {
+    if (constraint.type !== "point-lock") {
+      return true;
+    }
+    if (seenPointLocks.has(constraint.pointId)) {
+      return false;
+    }
+    seenPointLocks.add(constraint.pointId);
+    return true;
+  });
+}
+
+export function isPointLocked(state, pointId) {
+  return state.constraints.some((constraint) => {
+    return constraint.type === "point-lock" && constraint.pointId === pointId;
+  });
+}
+
+export function addPointLockConstraint(state, pointId) {
+  if (!getPointById(state, pointId)) {
+    return null;
+  }
+  if (isPointLocked(state, pointId)) {
+    return null;
+  }
+  const constraint = {
+    id: createId(state),
+    type: "point-lock",
+    pointId,
+  };
+  state.constraints.push(constraint);
+  return constraint;
+}
+
+export function removePointLockConstraint(state, pointId) {
+  const before = state.constraints.length;
+  state.constraints = state.constraints.filter((constraint) => {
+    return !(constraint.type === "point-lock" && constraint.pointId === pointId);
+  });
+  return state.constraints.length !== before;
+}
+
+export function togglePointLockConstraint(state, pointId) {
+  if (isPointLocked(state, pointId)) {
+    removePointLockConstraint(state, pointId);
+    return false;
+  }
+  return Boolean(addPointLockConstraint(state, pointId));
 }
 
 export function isSegmentInsidePolygon(state, aId, bId) {
@@ -176,6 +246,7 @@ export function normalizeGeometry(state) {
   state.selection.segments = new Set([...state.selection.segments].filter((id) => segmentIds.has(id)));
   state.selection.polygons = new Set([...state.selection.polygons].filter((id) => polygonIds.has(id)));
   state.selection.texts = new Set([...state.selection.texts].filter((id) => textIds.has(id)));
+  normalizeConstraints(state);
 }
 
 export function getAllEdges(state) {
@@ -326,5 +397,6 @@ export function serializeCoreState(state, version) {
     polygons: state.polygons,
     texts: state.texts,
     angleAnnotations: state.angleAnnotations,
+    constraints: state.constraints,
   };
 }

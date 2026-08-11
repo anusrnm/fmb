@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.7.0";
+const VERSION = "2.8.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -93,6 +93,11 @@ function saveDisplaySettings() {
     JSON.stringify({
       ...state.display,
       snapToPoints: state.snapToPoints,
+      snapToGrid: state.snapToGrid,
+      snapToMidpoints: state.snapToMidpoints,
+      snapToIntersections: state.snapToIntersections,
+      snapAngleStep: state.snapAngleStep,
+      snapAngleStepDegrees: state.snapAngleStepDegrees,
     })
   );
 }
@@ -112,6 +117,21 @@ function loadDisplaySettings() {
     if (typeof parsed.snapToPoints === "boolean") {
       state.snapToPoints = parsed.snapToPoints;
     }
+    if (typeof parsed.snapToGrid === "boolean") {
+      state.snapToGrid = parsed.snapToGrid;
+    }
+    if (typeof parsed.snapToMidpoints === "boolean") {
+      state.snapToMidpoints = parsed.snapToMidpoints;
+    }
+    if (typeof parsed.snapToIntersections === "boolean") {
+      state.snapToIntersections = parsed.snapToIntersections;
+    }
+    if (typeof parsed.snapAngleStep === "boolean") {
+      state.snapAngleStep = parsed.snapAngleStep;
+    }
+    if (Number.isFinite(Number(parsed.snapAngleStepDegrees))) {
+      state.snapAngleStepDegrees = clamp(Math.round(Number(parsed.snapAngleStepDegrees)), 1, 180);
+    }
   } catch {
     // Ignore corrupt local values and keep defaults.
   }
@@ -119,6 +139,12 @@ function loadDisplaySettings() {
 
 function syncDisplayControlsToState() {
   ui.snapToggle.checked = state.snapToPoints;
+  ui.snapGridToggle.checked = state.snapToGrid;
+  ui.snapMidpointToggle.checked = state.snapToMidpoints;
+  ui.snapIntersectionToggle.checked = state.snapToIntersections;
+  ui.snapAngleStepToggle.checked = state.snapAngleStep;
+  ui.snapAngleStepDegreesInput.value = String(state.snapAngleStepDegrees);
+  ui.snapAngleStepDegreesInput.disabled = !state.snapAngleStep;
   ui.showPointsToggle.checked = state.display.showPoints;
   ui.showLabelsToggle.checked = state.display.showLabels;
   ui.showSegmentsToggle.checked = state.display.showSegments;
@@ -142,6 +168,11 @@ function updateDisplaySetting(key, value) {
 
 function resetDisplaySettings() {
   state.snapToPoints = true;
+  state.snapToGrid = false;
+  state.snapToMidpoints = false;
+  state.snapToIntersections = false;
+  state.snapAngleStep = false;
+  state.snapAngleStepDegrees = 15;
   for (const key of Object.keys(state.display)) {
     state.display[key] = true;
   }
@@ -307,6 +338,23 @@ function applyCoreState(serialized) {
         bId: Number(item.bId),
       }))
     : [];
+  const constraints = Array.isArray(serialized.constraints)
+    ? serialized.constraints
+        .map((constraint) => {
+          if (!constraint || typeof constraint !== "object") {
+            return null;
+          }
+          if (constraint.type === "point-lock") {
+            return {
+              id: readEntityId(constraint.id, "constraint ID", ids),
+              type: "point-lock",
+              pointId: Number(constraint.pointId),
+            };
+          }
+          return null;
+        })
+        .filter(Boolean)
+    : [];
 
   const nextId = Math.max(
     ...ids,
@@ -323,6 +371,7 @@ function applyCoreState(serialized) {
   state.polygons = polygons;
   state.texts = texts;
   state.angleAnnotations = angleAnnotations;
+  state.constraints = constraints;
 
   normalizeGeometry();
   clearSelection();
@@ -526,6 +575,156 @@ function getSnapPoint(worldPoint, maxDistancePx = 14) {
   }
 
   return bestDistance <= maxDistancePx ? best : null;
+}
+
+function getGridSnapPoint(worldPoint) {
+  if (!state.snapToGrid) {
+    return null;
+  }
+  const majorStep = chooseGridMajorStep();
+  const step = majorStep / 5;
+  if (!Number.isFinite(step) || step <= 0) {
+    return null;
+  }
+  return {
+    x: round2(Math.round(worldPoint.x / step) * step),
+    y: round2(Math.round(worldPoint.y / step) * step),
+  };
+}
+
+function segmentIntersectionWorld(a, b, c, d) {
+  const r = { x: b.x - a.x, y: b.y - a.y };
+  const s = { x: d.x - c.x, y: d.y - c.y };
+  const denom = r.x * s.y - r.y * s.x;
+  if (Math.abs(denom) < 1e-9) {
+    return null;
+  }
+
+  const ac = { x: c.x - a.x, y: c.y - a.y };
+  const t = (ac.x * s.y - ac.y * s.x) / denom;
+  const u = (ac.x * r.y - ac.y * r.x) / denom;
+  if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) {
+    return null;
+  }
+
+  return {
+    x: a.x + t * r.x,
+    y: a.y + t * r.y,
+  };
+}
+
+function getMidpointSnapPoint(worldPoint, maxDistancePx = 14) {
+  if (!state.snapToMidpoints) {
+    return null;
+  }
+
+  const targetScreen = worldToScreen(worldPoint);
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const edge of getAllEdges()) {
+    const a = getPointById(edge.aId);
+    const b = getPointById(edge.bId);
+    if (!a || !b) {
+      continue;
+    }
+    const midpoint = {
+      x: (a.x + b.x) * 0.5,
+      y: (a.y + b.y) * 0.5,
+    };
+    const distance = distanceScreen(targetScreen, worldToScreen(midpoint));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = midpoint;
+    }
+  }
+
+  return bestDistance <= maxDistancePx ? best : null;
+}
+
+function getIntersectionSnapPoint(worldPoint, maxDistancePx = 14) {
+  if (!state.snapToIntersections) {
+    return null;
+  }
+
+  const targetScreen = worldToScreen(worldPoint);
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  const edges = getAllEdges();
+
+  for (let i = 0; i < edges.length; i += 1) {
+    const a1 = getPointById(edges[i].aId);
+    const b1 = getPointById(edges[i].bId);
+    if (!a1 || !b1) {
+      continue;
+    }
+
+    for (let j = i + 1; j < edges.length; j += 1) {
+      const a2 = getPointById(edges[j].aId);
+      const b2 = getPointById(edges[j].bId);
+      if (!a2 || !b2) {
+        continue;
+      }
+
+      const intersection = segmentIntersectionWorld(a1, b1, a2, b2);
+      if (!intersection) {
+        continue;
+      }
+
+      const distance = distanceScreen(targetScreen, worldToScreen(intersection));
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = intersection;
+      }
+    }
+  }
+
+  return bestDistance <= maxDistancePx ? best : null;
+}
+
+function getSnappedWorldPoint(worldPoint) {
+  const pointSnap = getSnapPoint(worldPoint);
+  if (pointSnap) {
+    return { x: pointSnap.x, y: pointSnap.y, source: "point", point: pointSnap };
+  }
+
+  const intersectionSnap = getIntersectionSnapPoint(worldPoint);
+  if (intersectionSnap) {
+    return { x: intersectionSnap.x, y: intersectionSnap.y, source: "intersection" };
+  }
+
+  const midpointSnap = getMidpointSnapPoint(worldPoint);
+  if (midpointSnap) {
+    return { x: midpointSnap.x, y: midpointSnap.y, source: "midpoint" };
+  }
+
+  const gridSnap = getGridSnapPoint(worldPoint);
+  if (gridSnap) {
+    return { x: gridSnap.x, y: gridSnap.y, source: "grid" };
+  }
+
+  return { x: worldPoint.x, y: worldPoint.y, source: "none" };
+}
+
+function applyAngleStepSnap(baseWorld, targetWorld) {
+  if (!state.snapAngleStep) {
+    return targetWorld;
+  }
+
+  const stepDeg = clamp(Math.round(Number(state.snapAngleStepDegrees) || 15), 1, 180);
+  const step = (stepDeg * Math.PI) / 180;
+  const dx = targetWorld.x - baseWorld.x;
+  const dy = targetWorld.y - baseWorld.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1e-9) {
+    return targetWorld;
+  }
+
+  const snappedAngle = Math.round(Math.atan2(dy, dx) / step) * step;
+  return {
+    x: round2(baseWorld.x + Math.cos(snappedAngle) * distance),
+    y: round2(baseWorld.y + Math.sin(snappedAngle) * distance),
+  };
 }
 
 function addPoint(x, y, options = {}) {
@@ -1271,11 +1470,12 @@ function renderNow() {
     const screenPoint = worldToScreen(point);
     const selected = state.selection.points.has(point.id);
     const hovered = state.hoverTarget?.kind === "point" && state.hoverTarget.item.id === point.id;
+    const locked = core.isPointLocked(state, point.id);
     if (state.display.showPoints) {
       pointsGroup.append(
         makeCircle(screenPoint.x, screenPoint.y, selected ? 6.8 : hovered ? 6.4 : 5.4, {
-          fill: selected ? "#f59e0b" : hovered ? "#0891b2" : "#155e75",
-          stroke: "#ffffff",
+          fill: selected ? "#f59e0b" : hovered ? "#0891b2" : locked ? "#64748b" : "#155e75",
+          stroke: locked ? "#1e293b" : "#ffffff",
           "stroke-width": selected || hovered ? 2.2 : 1.6,
         })
       );
@@ -1447,11 +1647,11 @@ function toggleSelection(kind, id) {
 }
 
 function resolvePointForDrawing(worldPoint) {
-  const snapped = getSnapPoint(worldPoint);
-  if (snapped) {
-    return snapped;
+  const snapped = getSnappedWorldPoint(worldPoint);
+  if (snapped.point) {
+    return snapped.point;
   }
-  return addPoint(worldPoint.x, worldPoint.y);
+  return addPoint(snapped.x, snapped.y);
 }
 
 function handleModeAction(screen, world, event = null) {
@@ -1502,8 +1702,10 @@ function handleModeAction(screen, world, event = null) {
   }
 
   if (state.mode === "segment") {
-    const hitPoint = hitTestPoint(screen) || getSnapPoint(world);
-    const point = hitPoint || addPoint(world.x, world.y);
+    const directHitPoint = hitTestPoint(screen);
+    const snapped = directHitPoint ? null : getSnappedWorldPoint(world);
+    const hitPoint = directHitPoint || snapped?.point || null;
+    const point = hitPoint || addPoint(snapped?.x ?? world.x, snapped?.y ?? world.y);
     if (!state.construction || state.construction.tool !== "segment") {
       state.construction = {
         tool: "segment",
@@ -1518,6 +1720,13 @@ function handleModeAction(screen, world, event = null) {
     if (first === point.id) {
       setStatus("Pick a different second point.", "warning");
       return;
+    }
+
+    const firstPoint = getPointById(first);
+    if (firstPoint && !hitPoint && state.snapAngleStep) {
+      const snappedAnglePoint = applyAngleStepSnap(firstPoint, point);
+      point.x = snappedAnglePoint.x;
+      point.y = snappedAnglePoint.y;
     }
 
     const segment = addSegment(first, point.id, "segment");
@@ -1581,9 +1790,10 @@ function handleModeAction(screen, world, event = null) {
       uy = previousUx;
     }
 
+    const anchor = getSnappedWorldPoint(world);
     const halfLength = length * 0.5;
-    const p1 = addPoint(world.x - ux * halfLength, world.y - uy * halfLength);
-    const p2 = addPoint(world.x + ux * halfLength, world.y + uy * halfLength);
+    const p1 = addPoint(anchor.x - ux * halfLength, anchor.y - uy * halfLength);
+    const p2 = addPoint(anchor.x + ux * halfLength, anchor.y + uy * halfLength);
     addSegment(p1.id, p2.id, state.mode);
     state.construction = null;
     pushHistory(`Create ${state.mode} segment`);
@@ -1595,7 +1805,17 @@ function handleModeAction(screen, world, event = null) {
   if (state.mode === "polygon") {
     if (state.polygonDraft.length >= 2 && (event?.ctrlKey || event?.metaKey)) {
       const hitPoint = hitTestPoint(screen, 10);
-      const closingPoint = hitPoint || addPoint(world.x, world.y);
+      const previousPoint = getPointById(state.polygonDraft[state.polygonDraft.length - 1]);
+      let closingPoint = hitPoint;
+      if (!closingPoint) {
+        const snapped = getSnappedWorldPoint(world);
+        if (snapped.point) {
+          closingPoint = snapped.point;
+        } else {
+          const finalWorld = previousPoint ? applyAngleStepSnap(previousPoint, snapped) : snapped;
+          closingPoint = addPoint(finalWorld.x, finalWorld.y);
+        }
+      }
 
       if (!state.polygonDraft.includes(closingPoint.id)) {
         state.polygonDraft.push(closingPoint.id);
@@ -1636,7 +1856,17 @@ function handleModeAction(screen, world, event = null) {
       return;
     }
 
-    const point = hitPoint || addPoint(world.x, world.y);
+    const previousPoint = getPointById(state.polygonDraft[state.polygonDraft.length - 1]);
+    let point = hitPoint;
+    if (!point) {
+      const snapped = getSnappedWorldPoint(world);
+      if (snapped.point) {
+        point = snapped.point;
+      } else {
+        const nextWorld = previousPoint ? applyAngleStepSnap(previousPoint, snapped) : snapped;
+        point = addPoint(nextWorld.x, nextWorld.y);
+      }
+    }
     if (state.polygonDraft.includes(point.id)) {
       setStatus("That vertex already exists in the current polygon path.", "warning");
       return;
@@ -1700,11 +1930,12 @@ function handleModeAction(screen, world, event = null) {
 
 function movePoint(pointId, dxWorld, dyWorld) {
   const point = getPointById(pointId);
-  if (!point) {
-    return;
+  if (!point || core.isPointLocked(state, pointId)) {
+    return false;
   }
   point.x = round2(point.x + dxWorld);
   point.y = round2(point.y + dyWorld);
+  return true;
 }
 
 function handlePointerDown(event) {
@@ -1753,6 +1984,13 @@ function handlePointerDown(event) {
       hitPoint.id === state.polygonDraft[0];
 
     if (!closesDraft && hitPoint) {
+      if (core.isPointLocked(state, hitPoint.id)) {
+        clearSelection();
+        state.selection.points.add(hitPoint.id);
+        render();
+        setStatus("That point is locked. Press L to unlock selected points.", "warning");
+        return;
+      }
       clearSelection();
       state.selection.points.add(hitPoint.id);
       const startPositions = new Map();
@@ -1805,6 +2043,14 @@ function handlePointerDown(event) {
       }
 
       if (startPositions.size > 0) {
+        const hasUnlockedPoint = movedIds.some((pointId) => !core.isPointLocked(state, pointId));
+        if (!hasUnlockedPoint) {
+          clearSelection();
+          state.selection.polygons.add(hitPolygon.id);
+          render();
+          setStatus("Selected shape vertices are locked. Press L to unlock selected points.", "warning");
+          return;
+        }
         clearSelection();
         state.selection.polygons.add(hitPolygon.id);
         state.drag = {
@@ -1867,8 +2113,15 @@ function handlePointerDown(event) {
       setStatus(`Selection updated: ${getSelectionSummary()}`);
       return;
     }
+    const movableIds = movedIds.filter((pointId) => !core.isPointLocked(state, pointId));
+    if (movableIds.length === 0) {
+      state.drag = null;
+      render();
+      setStatus("Selection updated. Selected points are locked; press L to unlock.", "warning");
+      return;
+    }
     const startPositions = new Map();
-    for (const pointId of movedIds) {
+    for (const pointId of movableIds) {
       const point = getPointById(pointId);
       if (point) {
         startPositions.set(pointId, { x: point.x, y: point.y });
@@ -1876,7 +2129,7 @@ function handlePointerDown(event) {
     }
     state.drag = {
       type: "move-points",
-      movedIds,
+      movedIds: movableIds,
       anchorWorld: world,
       startPositions,
     };
@@ -1957,6 +2210,9 @@ function handlePointerMove(event) {
     const dxWorld = world.x - state.drag.anchorWorld.x;
     const dyWorld = world.y - state.drag.anchorWorld.y;
     for (const pointId of state.drag.movedIds) {
+      if (core.isPointLocked(state, pointId)) {
+        continue;
+      }
       const point = getPointById(pointId);
       const start = state.drag.startPositions.get(pointId);
       if (!point || !start) {
@@ -1973,6 +2229,9 @@ function handlePointerMove(event) {
     const dxWorld = world.x - state.drag.anchorWorld.x;
     const dyWorld = world.y - state.drag.anchorWorld.y;
     for (const pointId of state.drag.movedIds) {
+      if (core.isPointLocked(state, pointId)) {
+        continue;
+      }
       const point = getPointById(pointId);
       const start = state.drag.startPositions.get(pointId);
       if (!point || !start) {
@@ -2578,6 +2837,37 @@ function handleKeyDown(event) {
     return;
   }
 
+  if (event.key.toLowerCase() === "l" && !event.ctrlKey && !event.metaKey) {
+    const selectedPointIds = [...getSelectedPointIds()];
+    if (selectedPointIds.length === 0) {
+      setStatus("Select at least one point to lock or unlock.", "warning");
+      return;
+    }
+
+    event.preventDefault();
+    const allLocked = selectedPointIds.every((pointId) => core.isPointLocked(state, pointId));
+    if (allLocked) {
+      for (const pointId of selectedPointIds) {
+        core.removePointLockConstraint(state, pointId);
+      }
+      setStatus(
+        `${selectedPointIds.length} point${selectedPointIds.length === 1 ? "" : "s"} unlocked.`,
+        "success"
+      );
+    } else {
+      for (const pointId of selectedPointIds) {
+        core.addPointLockConstraint(state, pointId);
+      }
+      setStatus(
+        `${selectedPointIds.length} point${selectedPointIds.length === 1 ? "" : "s"} locked.`,
+        "success"
+      );
+    }
+    pushHistory("Toggle point lock constraints");
+    render();
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === "<" || event.key === ">")) {
     if (state.selection.texts.size === 0) {
       return;
@@ -2624,8 +2914,9 @@ function handleKeyDown(event) {
     event.preventDefault();
     const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
     const dy = event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
+    let movedAnyPoint = false;
     for (const pointId of selectedPointIds) {
-      movePoint(pointId, dx, dy);
+      movedAnyPoint = movePoint(pointId, dx, dy) || movedAnyPoint;
     }
     for (const textId of state.selection.texts) {
       const text = getTextById(textId);
@@ -2634,6 +2925,10 @@ function handleKeyDown(event) {
       }
       text.x = round2(text.x + dx);
       text.y = round2(text.y + dy);
+    }
+    if (!movedAnyPoint && state.selection.texts.size === 0) {
+      setStatus("Selected points are locked. Press L to unlock.", "warning");
+      return;
     }
     pushHistory("Nudge selection");
     render();
@@ -2731,6 +3026,36 @@ function wireEvents() {
     state.snapToPoints = ui.snapToggle.checked;
     saveDisplaySettings();
     setStatus(state.snapToPoints ? "Snap enabled." : "Snap disabled.");
+  });
+  addTrackedEvent(ui.snapGridToggle, "change", () => {
+    state.snapToGrid = ui.snapGridToggle.checked;
+    saveDisplaySettings();
+    setStatus(state.snapToGrid ? "Grid snap enabled." : "Grid snap disabled.");
+  });
+  addTrackedEvent(ui.snapMidpointToggle, "change", () => {
+    state.snapToMidpoints = ui.snapMidpointToggle.checked;
+    saveDisplaySettings();
+    setStatus(state.snapToMidpoints ? "Midpoint snap enabled." : "Midpoint snap disabled.");
+  });
+  addTrackedEvent(ui.snapIntersectionToggle, "change", () => {
+    state.snapToIntersections = ui.snapIntersectionToggle.checked;
+    saveDisplaySettings();
+    setStatus(state.snapToIntersections ? "Intersection snap enabled." : "Intersection snap disabled.");
+  });
+  addTrackedEvent(ui.snapAngleStepToggle, "change", () => {
+    state.snapAngleStep = ui.snapAngleStepToggle.checked;
+    ui.snapAngleStepDegreesInput.disabled = !state.snapAngleStep;
+    saveDisplaySettings();
+    setStatus(state.snapAngleStep ? `Angle snap enabled (${state.snapAngleStepDegrees}deg).` : "Angle snap disabled.");
+  });
+  addTrackedEvent(ui.snapAngleStepDegreesInput, "change", () => {
+    const value = clamp(Math.round(Number(ui.snapAngleStepDegreesInput.value) || 15), 1, 180);
+    state.snapAngleStepDegrees = value;
+    ui.snapAngleStepDegreesInput.value = String(value);
+    saveDisplaySettings();
+    if (state.snapAngleStep) {
+      setStatus(`Angle snap step set to ${value}deg.`);
+    }
   });
 
   addTrackedEvent(ui.showPointsToggle, "change", (event) => updateDisplaySetting("showPoints", event.target.checked));

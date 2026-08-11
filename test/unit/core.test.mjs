@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  addPointLockConstraint,
   addPoint,
   addPolygon,
   addSegment,
@@ -15,10 +16,13 @@ import {
   getTextById,
   isSegmentInsidePolygon,
   normalizeGeometry,
+  isPointLocked,
   polygonArea,
   polygonPerimeter,
+  removePointLockConstraint,
   removePoint,
   serializeCoreState,
+  togglePointLockConstraint,
 } from "../../core.js";
 
 function squareState() {
@@ -91,6 +95,7 @@ test("addText applies defaults and rounding", () => {
 test("removePoint cascades to segments, polygons, and selection", () => {
   const { state, a, b, c, d, polygon } = squareState();
   addSegment(state, a.id, c.id, "segment");
+  addPointLockConstraint(state, a.id);
   state.selection.points.add(a.id);
   removePoint(state, a.id);
   assert.equal(getPointById(state, a.id), null);
@@ -98,6 +103,42 @@ test("removePoint cascades to segments, polygons, and selection", () => {
   // Square drops to three vertices (B, C, D) and survives.
   assert.deepEqual(getPolygonById(state, polygon.id).pointIds, [b.id, c.id, d.id]);
   assert.ok(!state.selection.points.has(a.id));
+  assert.equal(state.constraints.length, 0);
+});
+
+test("point-lock constraints can be added, removed, and toggled", () => {
+  const state = createState();
+  const point = addPoint(state, 1, 2);
+
+  assert.equal(isPointLocked(state, point.id), false);
+  assert.ok(addPointLockConstraint(state, point.id));
+  assert.equal(isPointLocked(state, point.id), true);
+  assert.equal(addPointLockConstraint(state, point.id), null);
+
+  assert.equal(removePointLockConstraint(state, point.id), true);
+  assert.equal(removePointLockConstraint(state, point.id), false);
+  assert.equal(isPointLocked(state, point.id), false);
+
+  assert.equal(togglePointLockConstraint(state, point.id), true);
+  assert.equal(isPointLocked(state, point.id), true);
+  assert.equal(togglePointLockConstraint(state, point.id), false);
+  assert.equal(isPointLocked(state, point.id), false);
+});
+
+test("normalizeGeometry drops stale and duplicate point-lock constraints", () => {
+  const state = createState();
+  const a = addPoint(state, 0, 0);
+  const b = addPoint(state, 1, 0);
+  state.constraints = [
+    { id: 90, type: "point-lock", pointId: a.id },
+    { id: 91, type: "point-lock", pointId: a.id },
+    { id: 92, type: "point-lock", pointId: 9999 },
+    { id: 93, type: "unsupported", pointId: b.id },
+  ];
+
+  normalizeGeometry(state);
+  assert.equal(state.constraints.length, 1);
+  assert.deepEqual(state.constraints[0], { id: 90, type: "point-lock", pointId: a.id });
 });
 
 test("normalizeGeometry drops references to missing points and stale selections", () => {
@@ -172,8 +213,10 @@ test("getAngleCandidates skips zero-length arms from coincident points", () => {
 
 test("serializeCoreState captures the version and core arrays", () => {
   const { state } = squareState();
+  addPointLockConstraint(state, state.points[0].id);
   const snapshot = serializeCoreState(state, "9.9.9");
   assert.equal(snapshot.version, "9.9.9");
   assert.equal(snapshot.points.length, 4);
   assert.equal(snapshot.polygons.length, 1);
+  assert.equal(snapshot.constraints.length, 1);
 });
