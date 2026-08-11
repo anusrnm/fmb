@@ -127,3 +127,29 @@ test("reports duplicate segment creation instead of claiming success", async ({ 
   await clickGraph(page, 500, 500);
   await expect(page.getByRole("status")).toContainText("That segment already exists");
 });
+
+test("inserts and removes a polygon vertex with vertex edit tools", async ({ page }) => {
+  const pointA = await page.locator("#graph text", { hasText: "A (-8, -4)" }).evaluate((node) => {
+    const x = Number(node.getAttribute("x"));
+    const y = Number(node.getAttribute("y"));
+    return { x: x - 8, y: y + 8 };
+  });
+  const pointB = await page.locator("#graph text", { hasText: "B (6, -2)" }).evaluate((node) => {
+    const x = Number(node.getAttribute("x"));
+    const y = Number(node.getAttribute("y"));
+    return { x: x - 8, y: y + 8 };
+  });
+  const midpoint = {
+    x: (pointA.x + pointB.x) * 0.5,
+    y: (pointA.y + pointB.y) * 0.5,
+  };
+
+  await page.locator("#graph").hover({ position: midpoint });
+  await page.keyboard.press("Shift+I");
+  await expect(page.getByRole("status")).toContainText("Polygon vertex inserted");
+  await expect(page.locator("#graph circle")).toHaveCount(5);
+
+  await page.keyboard.press("x");
+  await expect(page.getByRole("status")).toContainText("Removed vertex");
+  await expect(page.locator("#graph circle")).toHaveCount(4);
+});

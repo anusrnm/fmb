@@ -50,6 +50,8 @@ export function queryUi(doc) {
     contextMenu: doc.getElementById("context-menu"),
     viewPointsBtn: doc.getElementById("view-points-btn"),
     joinPointsBtn: doc.getElementById("join-points-btn"),
+    insertPolygonVertexBtn: doc.getElementById("insert-polygon-vertex-btn"),
+    removePolygonVertexBtn: doc.getElementById("remove-polygon-vertex-btn"),
     pointsDialog: doc.getElementById("points-dialog"),
     pointsOutput: doc.getElementById("points-output"),
     coordinateValidation: doc.getElementById("coordinate-validation"),

@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.9.0";
+const VERSION = "2.11.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -50,6 +50,8 @@ let cachedGridKey = "";
 let cachedGridLayer = null;
 let historyActions = [];
 let lastAutosaveSnapshot = "";
+let contextMenuEdgePick = null;
+let contextMenuVertexPointId = null;
 const perfCounters = {
   renderNowCalls: 0,
   gridCacheHits: 0,
@@ -2675,7 +2677,82 @@ function drawShapeFromCoordinateInput() {
   setStatus(`Shape created from ${pointIds.length} coordinates.`, "success");
 }
 
+function insertPolygonVertexOnEdge(edgePick) {
+  if (!edgePick || edgePick.edge.edgeType !== "polygon-edge") {
+    setStatus("Move closer to a polygon edge to insert a vertex.", "warning");
+    return false;
+  }
+
+  const inserted = insertPointOnEdge(edgePick, edgePick.projection.point);
+  clearSelection();
+  state.selection.polygons.add(edgePick.edge.polygonId);
+  state.selection.points.add(inserted.id);
+  normalizeGeometry();
+  pushHistory("Insert polygon vertex");
+  render();
+  setStatus(`Polygon vertex inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`, "success");
+  return true;
+}
+
+function removePolygonVertex(pointId, polygonId = null) {
+  const point = getPointById(pointId);
+  if (!point) {
+    setStatus("Selected vertex no longer exists.", "warning");
+    return false;
+  }
+
+  let polygon = null;
+  if (Number.isInteger(polygonId)) {
+    const byId = getPolygonById(polygonId);
+    if (byId && byId.pointIds.includes(pointId)) {
+      polygon = byId;
+    }
+  }
+  if (!polygon) {
+    const selectedPolygonIds = [...state.selection.polygons];
+    if (selectedPolygonIds.length === 1) {
+      const selectedPolygon = getPolygonById(selectedPolygonIds[0]);
+      if (selectedPolygon && selectedPolygon.pointIds.includes(pointId)) {
+        polygon = selectedPolygon;
+      }
+    }
+  }
+  if (!polygon) {
+    polygon = state.polygons.find((entry) => entry.pointIds.includes(pointId)) || null;
+  }
+
+  if (!polygon) {
+    setStatus("Select a polygon vertex to remove.", "warning");
+    return false;
+  }
+  if (polygon.pointIds.length <= 3) {
+    setStatus("A polygon must keep at least three vertices.", "warning");
+    return false;
+  }
+
+  const vertexIndex = polygon.pointIds.indexOf(pointId);
+  if (vertexIndex < 0) {
+    setStatus("Selected vertex is not part of that polygon.", "warning");
+    return false;
+  }
+
+  polygon.pointIds.splice(vertexIndex, 1);
+  if (!pointIsUsedOutsidePolygon(pointId, polygon.id)) {
+    removePoint(pointId);
+  }
+
+  clearSelection();
+  state.selection.polygons.add(polygon.id);
+  normalizeGeometry();
+  pushHistory("Remove polygon vertex");
+  render();
+  setStatus(`Removed vertex ${point.label} from polygon.`, "success");
+  return true;
+}
+
 function hideContextMenu() {
+  contextMenuEdgePick = null;
+  contextMenuVertexPointId = null;
   ui.contextMenu.hidden = true;
 }
 
@@ -2828,6 +2905,10 @@ function handleKeyDown(event) {
       setStatus("Move the pointer closer to an edge before inserting a point.", "warning");
       return;
     }
+    if (event.shiftKey) {
+      insertPolygonVertexOnEdge(edgePick.edge.edgeType === "polygon-edge" ? edgePick : null);
+      return;
+    }
     const inserted = insertPointOnEdge(edgePick, edgePick.projection.point);
     clearSelection();
     state.selection.points.add(inserted.id);
@@ -2878,6 +2959,17 @@ function handleKeyDown(event) {
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
     removeSelectedObjects();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "x" && !event.ctrlKey && !event.metaKey) {
+    const selectedPointIds = [...state.selection.points];
+    if (selectedPointIds.length !== 1) {
+      setStatus("Select exactly one polygon vertex to remove.", "warning");
+      return;
+    }
+    event.preventDefault();
+    removePolygonVertex(selectedPointIds[0]);
     return;
   }
 
@@ -3146,17 +3238,30 @@ function wireEvents() {
   addTrackedEvent(ui.graph, "contextmenu", (event) => {
     event.preventDefault();
     const screen = getScreenPointFromEvent(event);
+    const world = screenToWorld(screen);
+    const hitPoint = hitTestPoint(screen);
+    const hitText = hitTestText(screen);
+    const hitSegment = hitTestSegment(screen);
     const hitPolygon = hitTestPolygonLabel(screen) || hitTestPolygon(screen);
+    const edgePick = findNearestEdge(world);
+    const polygonEdgePick = edgePick?.edge?.edgeType === "polygon-edge" ? edgePick : null;
+    const removablePolygon = hitPoint
+      ? state.polygons.find((polygon) => polygon.pointIds.includes(hitPoint.id) && polygon.pointIds.length > 3) || null
+      : null;
     const isEmptyArea =
-      !hitTestPoint(screen) &&
-      !hitTestText(screen) &&
-      !hitTestSegment(screen) &&
+      !hitPoint &&
+      !hitText &&
+      !hitSegment &&
       !hitPolygon;
     if (hitPolygon) {
       clearSelection();
       state.selection.polygons.add(hitPolygon.id);
       render();
     }
+    contextMenuEdgePick = polygonEdgePick;
+    contextMenuVertexPointId = removablePolygon ? hitPoint.id : null;
+    ui.insertPolygonVertexBtn.hidden = !polygonEdgePick;
+    ui.removePolygonVertexBtn.hidden = !removablePolygon;
     ui.viewPointsBtn.dataset.context = isEmptyArea ? "empty" : "objects";
     showContextMenu(event.clientX, event.clientY);
   });
@@ -3173,6 +3278,22 @@ function wireEvents() {
   addTrackedEvent(ui.joinPointsBtn, "click", () => {
     hideContextMenu();
     joinSelectedPoints();
+  });
+
+  addTrackedEvent(ui.insertPolygonVertexBtn, "click", () => {
+    const edgePick = contextMenuEdgePick;
+    hideContextMenu();
+    insertPolygonVertexOnEdge(edgePick);
+  });
+
+  addTrackedEvent(ui.removePolygonVertexBtn, "click", () => {
+    const pointId = contextMenuVertexPointId;
+    hideContextMenu();
+    if (!Number.isInteger(pointId)) {
+      setStatus("Select a polygon vertex to remove.", "warning");
+      return;
+    }
+    removePolygonVertex(pointId);
   });
 
   addTrackedEvent(ui.copyPointsBtn, "click", async () => {
