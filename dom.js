@@ -28,6 +28,7 @@ export function queryUi(doc) {
     importFile: doc.getElementById("import-file"),
     settingsBtn: doc.getElementById("settings-btn"),
     settingsPanel: doc.getElementById("settings-panel"),
+    clearAutosaveBtn: doc.getElementById("clear-autosave-btn"),
     resetSettingsBtn: doc.getElementById("reset-settings-btn"),
     closeSettingsBtn: doc.getElementById("close-settings-btn"),
     snapToggle: doc.getElementById("snap-toggle"),

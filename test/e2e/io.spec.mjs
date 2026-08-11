@@ -132,3 +132,14 @@ test("repairs stale imported next IDs before creating new objects", async ({ pag
   expect(new Set(ids).size).toBe(ids.length);
   expect(exported.data.nextId).toBeGreaterThan(Math.max(...ids));
 });
+
+test("restores autosaved geometry edits after reload", async ({ page }) => {
+  await clickGraph(page, 373, 434);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByRole("status")).toContainText("Recovered autosaved draft");
+  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+});

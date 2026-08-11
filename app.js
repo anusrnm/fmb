@@ -18,10 +18,11 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.8.0";
+const VERSION = "2.9.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
+const AUTOSAVE_STORAGE_KEY = "fmb-autosave-draft";
 const MIN_SCALE = 0.01;
 const MAX_SCALE = 320;
 
@@ -48,6 +49,7 @@ let renderQueued = false;
 let cachedGridKey = "";
 let cachedGridLayer = null;
 let historyActions = [];
+let lastAutosaveSnapshot = "";
 const perfCounters = {
   renderNowCalls: 0,
   gridCacheHits: 0,
@@ -85,6 +87,58 @@ function getCssVar(name, fallback) {
 
 function polygonPerimeter(pointIds) {
   return core.polygonPerimeter(state, pointIds);
+}
+
+function clearAutosaveDraft() {
+  try {
+    localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+  lastAutosaveSnapshot = "";
+}
+
+function persistAutosaveNow() {
+  try {
+    const snapshot = serializeCoreState();
+    const serializedSnapshot = JSON.stringify(snapshot);
+    if (serializedSnapshot === lastAutosaveSnapshot) {
+      return false;
+    }
+    localStorage.setItem(
+      AUTOSAVE_STORAGE_KEY,
+      JSON.stringify({
+        version: VERSION,
+        savedAt: new Date().toISOString(),
+        data: snapshot,
+      })
+    );
+    lastAutosaveSnapshot = serializedSnapshot;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function restoreAutosaveDraft() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+    const parsed = JSON.parse(raw);
+    const payload = parsed && typeof parsed === "object" && parsed.data ? parsed.data : null;
+    if (!payload || typeof payload !== "object") {
+      clearAutosaveDraft();
+      return false;
+    }
+    applyCoreState(payload);
+    lastAutosaveSnapshot = JSON.stringify(serializeCoreState());
+    return true;
+  } catch {
+    clearAutosaveDraft();
+    return false;
+  }
 }
 
 function saveDisplaySettings() {
@@ -400,6 +454,7 @@ function pushHistory(action = "Change diagram") {
   state.history = result.history;
   state.historyIndex = result.historyIndex;
   updateUndoRedoButtons();
+  persistAutosaveNow();
 }
 
 function undo() {
@@ -3022,6 +3077,10 @@ function wireEvents() {
     ui.settingsPanel.hidden = true;
   });
   addTrackedEvent(ui.resetSettingsBtn, "click", resetDisplaySettings);
+  addTrackedEvent(ui.clearAutosaveBtn, "click", () => {
+    clearAutosaveDraft();
+    setStatus("Autosave draft cleared.", "success");
+  });
   addTrackedEvent(ui.snapToggle, "change", () => {
     state.snapToPoints = ui.snapToggle.checked;
     saveDisplaySettings();
@@ -3141,6 +3200,9 @@ function wireEvents() {
 
   addTrackedEvent(globalThis, "keydown", handleKeyDown);
   addTrackedEvent(globalThis, "resize", render);
+  addTrackedEvent(globalThis, "beforeunload", () => {
+    persistAutosaveNow();
+  });
 
   let _printStyle = null;
   addTrackedEvent(globalThis, "beforeprint", () => {
@@ -3187,6 +3249,7 @@ function bootstrap() {
   disposeWiredEvents?.();
   disposeWiredEvents = null;
   historyActions = [];
+  lastAutosaveSnapshot = "";
   exposePerfCounters();
   Object.assign(ui, queryUi(document));
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
@@ -3195,11 +3258,16 @@ function bootstrap() {
   syncDisplayControlsToState();
   ui.versionBadge.textContent = `v${VERSION}`;
   initializeDemoGeometry();
+  const recoveredAutosave = restoreAutosaveDraft();
   disposeWiredEvents = wireEvents();
   setMode("select");
-  pushHistory("Initialize diagram");
+  pushHistory(recoveredAutosave ? "Recover autosaved draft" : "Initialize diagram");
   render();
-  setStatus("Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y.");
+  setStatus(
+    recoveredAutosave
+      ? "Recovered autosaved draft. Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y."
+      : "Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y."
+  );
 }
 
 // Only auto-run in a browser; importing this module headlessly does no DOM work.
