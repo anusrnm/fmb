@@ -571,6 +571,55 @@ svg text.angle-label-preview {
   height: 38px;
 }
 
+.constraints-summary {
+  margin: 0 0 8px;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.constraints-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.constraints-actions button:last-child {
+  grid-column: 1 / -1;
+}
+
+.constraints-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.constraints-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.constraints-list-text {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.constraints-remove-btn {
+  height: 26px;
+  min-width: 26px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  padding: 0 6px;
+}
+
 .settings-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

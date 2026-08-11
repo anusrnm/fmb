@@ -32,6 +32,11 @@ test("queryUi resolves elements by id and returns them", () => {
   assert.deepEqual(ui.fitSelectionBtn, { id: "fit-selection-btn" });
   assert.deepEqual(ui.coordinateValidation, { id: "coordinate-validation" });
   assert.deepEqual(ui.coordinatePreview, { id: "coordinate-preview" });
+  assert.deepEqual(ui.constraintsSummary, { id: "constraints-summary" });
+  assert.deepEqual(ui.lockSelectedBtn, { id: "lock-selected-btn" });
+  assert.deepEqual(ui.unlockSelectedBtn, { id: "unlock-selected-btn" });
+  assert.deepEqual(ui.clearConstraintsBtn, { id: "clear-constraints-btn" });
+  assert.deepEqual(ui.constraintsList, { id: "constraints-list" });
   assert.deepEqual(ui.resetSettingsBtn, { id: "reset-settings-btn" });
   assert.deepEqual(ui.inlineTextEditor, { id: "inline-text-editor" });
   assert.ok(doc.byId.includes("export-json-btn"));

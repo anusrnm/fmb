@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.11.0";
+const VERSION = "2.12.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -1341,6 +1341,7 @@ function drawGrid(parentGroup) {
 
 function renderNow() {
   perfCounters.renderNowCalls += 1;
+  updateConstraintsPanel();
   updateZoomResetButton();
   const rect = getRect();
   ui.graph.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
@@ -2750,6 +2751,117 @@ function removePolygonVertex(pointId, polygonId = null) {
   return true;
 }
 
+function lockSelectedPoints() {
+  const selectedPointIds = [...getSelectedPointIds()];
+  if (selectedPointIds.length === 0) {
+    return { changed: false, message: "Select at least one point to lock.", tone: "warning" };
+  }
+
+  let changedCount = 0;
+  for (const pointId of selectedPointIds) {
+    if (core.addPointLockConstraint(state, pointId)) {
+      changedCount += 1;
+    }
+  }
+
+  if (changedCount === 0) {
+    return { changed: false, message: "Selected points are already locked.", tone: "warning" };
+  }
+
+  return {
+    changed: true,
+    message: `Locked ${changedCount} point${changedCount === 1 ? "" : "s"}.`,
+    tone: "success",
+  };
+}
+
+function unlockSelectedPoints() {
+  const selectedPointIds = [...getSelectedPointIds()];
+  if (selectedPointIds.length === 0) {
+    return { changed: false, message: "Select at least one point to unlock.", tone: "warning" };
+  }
+
+  let changedCount = 0;
+  for (const pointId of selectedPointIds) {
+    if (core.removePointLockConstraint(state, pointId)) {
+      changedCount += 1;
+    }
+  }
+
+  if (changedCount === 0) {
+    return { changed: false, message: "Selected points are already unlocked.", tone: "warning" };
+  }
+
+  return {
+    changed: true,
+    message: `Unlocked ${changedCount} point${changedCount === 1 ? "" : "s"}.`,
+    tone: "success",
+  };
+}
+
+function clearAllConstraints() {
+  if (state.constraints.length === 0) {
+    return { changed: false, message: "No constraints to clear.", tone: "warning" };
+  }
+  const count = state.constraints.length;
+  state.constraints = [];
+  return {
+    changed: true,
+    message: `Cleared ${count} constraint${count === 1 ? "" : "s"}.`,
+    tone: "success",
+  };
+}
+
+function updateConstraintsPanel() {
+  if (!ui.constraintsSummary || !ui.constraintsList || !ui.lockSelectedBtn || !ui.unlockSelectedBtn || !ui.clearConstraintsBtn) {
+    return;
+  }
+
+  const selectedPointIds = [...getSelectedPointIds()];
+  const lockedConstraints = state.constraints.filter((constraint) => constraint.type === "point-lock");
+
+  ui.lockSelectedBtn.disabled = selectedPointIds.length === 0;
+  ui.unlockSelectedBtn.disabled = selectedPointIds.length === 0;
+  ui.clearConstraintsBtn.disabled = state.constraints.length === 0;
+
+  ui.constraintsSummary.textContent =
+    `${lockedConstraints.length} lock constraint${lockedConstraints.length === 1 ? "" : "s"}` +
+    `, ${selectedPointIds.length} point${selectedPointIds.length === 1 ? "" : "s"} selected`;
+
+  ui.constraintsList.replaceChildren();
+  if (lockedConstraints.length === 0) {
+    const item = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "constraints-list-text";
+    text.textContent = "No active constraints.";
+    item.append(text);
+    ui.constraintsList.append(item);
+    return;
+  }
+
+  for (const constraint of lockedConstraints) {
+    const point = getPointById(constraint.pointId);
+    if (!point) {
+      continue;
+    }
+    const item = document.createElement("li");
+    const text = document.createElement("span");
+    const removeBtn = document.createElement("button");
+
+    text.className = "constraints-list-text";
+    text.textContent = `Lock ${point.label} (${round2(point.x)}, ${round2(point.y)})`;
+
+    removeBtn.type = "button";
+    removeBtn.className = "constraints-remove-btn";
+    removeBtn.textContent = "Unlock";
+    removeBtn.dataset.pointId = String(point.id);
+    removeBtn.title = `Unlock ${point.label}`;
+
+    item.append(text, removeBtn);
+    ui.constraintsList.append(item);
+  }
+}
+
 function hideContextMenu() {
   contextMenuEdgePick = null;
   contextMenuVertexPointId = null;
@@ -2985,33 +3097,17 @@ function handleKeyDown(event) {
   }
 
   if (event.key.toLowerCase() === "l" && !event.ctrlKey && !event.metaKey) {
-    const selectedPointIds = [...getSelectedPointIds()];
-    if (selectedPointIds.length === 0) {
-      setStatus("Select at least one point to lock or unlock.", "warning");
-      return;
-    }
-
     event.preventDefault();
-    const allLocked = selectedPointIds.every((pointId) => core.isPointLocked(state, pointId));
-    if (allLocked) {
-      for (const pointId of selectedPointIds) {
-        core.removePointLockConstraint(state, pointId);
-      }
-      setStatus(
-        `${selectedPointIds.length} point${selectedPointIds.length === 1 ? "" : "s"} unlocked.`,
-        "success"
-      );
+    const selectedPointIds = [...getSelectedPointIds()];
+    const allLocked = selectedPointIds.length > 0 && selectedPointIds.every((pointId) => core.isPointLocked(state, pointId));
+    const result = allLocked ? unlockSelectedPoints() : lockSelectedPoints();
+    setStatus(result.message, result.tone);
+    if (result.changed) {
+      pushHistory("Toggle point lock constraints");
+      render();
     } else {
-      for (const pointId of selectedPointIds) {
-        core.addPointLockConstraint(state, pointId);
-      }
-      setStatus(
-        `${selectedPointIds.length} point${selectedPointIds.length === 1 ? "" : "s"} locked.`,
-        "success"
-      );
+      updateConstraintsPanel();
     }
-    pushHistory("Toggle point lock constraints");
-    render();
     return;
   }
 
@@ -3172,6 +3268,55 @@ function wireEvents() {
   addTrackedEvent(ui.clearAutosaveBtn, "click", () => {
     clearAutosaveDraft();
     setStatus("Autosave draft cleared.", "success");
+  });
+  addTrackedEvent(ui.lockSelectedBtn, "click", () => {
+    const result = lockSelectedPoints();
+    setStatus(result.message, result.tone);
+    if (result.changed) {
+      pushHistory("Lock selected points");
+      render();
+    } else {
+      updateConstraintsPanel();
+    }
+  });
+  addTrackedEvent(ui.unlockSelectedBtn, "click", () => {
+    const result = unlockSelectedPoints();
+    setStatus(result.message, result.tone);
+    if (result.changed) {
+      pushHistory("Unlock selected points");
+      render();
+    } else {
+      updateConstraintsPanel();
+    }
+  });
+  addTrackedEvent(ui.clearConstraintsBtn, "click", () => {
+    const result = clearAllConstraints();
+    setStatus(result.message, result.tone);
+    if (result.changed) {
+      pushHistory("Clear constraints");
+      render();
+    } else {
+      updateConstraintsPanel();
+    }
+  });
+  addTrackedEvent(ui.constraintsList, "click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) {
+      return;
+    }
+    const pointId = Number(target.dataset.pointId);
+    if (!Number.isInteger(pointId)) {
+      return;
+    }
+    if (!core.removePointLockConstraint(state, pointId)) {
+      setStatus("That constraint was already removed.", "warning");
+      updateConstraintsPanel();
+      return;
+    }
+    const point = getPointById(pointId);
+    pushHistory("Remove constraint");
+    render();
+    setStatus(`Unlocked ${point?.label || "point"}.`, "success");
   });
   addTrackedEvent(ui.snapToggle, "change", () => {
     state.snapToPoints = ui.snapToggle.checked;

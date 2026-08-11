@@ -47,14 +47,14 @@ test("selects, nudges, and deletes a point with keyboard controls", async ({ pag
 test("locks selected points to block move until unlocked", async ({ page }) => {
   await clickGraph(page, 373, 434);
   await page.keyboard.press("l");
-  await expect(page.getByRole("status")).toContainText("1 point locked");
+  await expect(page.getByRole("status")).toContainText("Locked 1 point");
 
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("status")).toContainText("Selected points are locked");
   await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
 
   await page.keyboard.press("l");
-  await expect(page.getByRole("status")).toContainText("1 point unlocked");
+  await expect(page.getByRole("status")).toContainText("Unlocked 1 point");
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
 });
@@ -152,4 +152,44 @@ test("inserts and removes a polygon vertex with vertex edit tools", async ({ pag
   await page.keyboard.press("x");
   await expect(page.getByRole("status")).toContainText("Removed vertex");
   await expect(page.locator("#graph circle")).toHaveCount(4);
+});
+
+test("manages point locks from the constraints panel", async ({ page }) => {
+  await clickGraph(page, 373, 434);
+  await page.getByTitle("Settings").click();
+
+  await page.locator("#lock-selected-btn").click();
+  await expect(page.getByRole("status")).toContainText("Locked 1 point");
+  await expect(page.locator("#constraints-list li")).toHaveCount(1);
+  await expect(page.locator("#constraints-list")).toContainText("Lock A (-8, -4)");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("status")).toContainText("Selected points are locked");
+
+  await page.locator("#constraints-list .constraints-remove-btn").click();
+  await expect(page.getByRole("status")).toContainText("Unlocked A");
+  await expect(page.locator("#constraints-list")).toContainText("No active constraints");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+});
+
+test("clears and unlocks constraints via panel actions", async ({ page }) => {
+  await clickGraph(page, 373, 434);
+
+  await page.getByTitle("Settings").click();
+  await page.locator("#lock-selected-btn").click();
+  await expect(page.getByRole("status")).toContainText("Locked 1 point");
+  await expect(page.locator("#constraints-list .constraints-remove-btn")).toHaveCount(1);
+
+  await page.locator("#unlock-selected-btn").click();
+  await expect(page.getByRole("status")).toContainText("Unlocked 1 point");
+  await expect(page.locator("#constraints-list")).toContainText("No active constraints");
+
+  await page.locator("#lock-selected-btn").click();
+  await expect(page.getByRole("status")).toContainText("Locked 1 point");
+  await page.locator("#clear-constraints-btn").click();
+  await expect(page.getByRole("status")).toContainText("Cleared 1 constraint");
+  await expect(page.locator("#constraints-list")).toContainText("No active constraints");
+  await expect(page.locator("#clear-constraints-btn")).toBeDisabled();
 });
