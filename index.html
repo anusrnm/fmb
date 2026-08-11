@@ -224,10 +224,22 @@
       <button id="polygon-intersect-btn" type="button">Polygon Intersect</button>
     </div>
 
+    <dialog id="numeric-input-dialog" class="numeric-input-dialog points-dialog">
+      <form id="numeric-input-form" novalidate>
+        <p id="numeric-input-label"></p>
+        <input id="numeric-input-field" type="text" placeholder="10, 45" autocomplete="off" spellcheck="false" />
+        <p id="numeric-input-error" class="coordinate-validation" hidden></p>
+        <div class="dialog-actions">
+          <button id="numeric-input-cancel" type="button">Cancel</button>
+          <button type="submit">OK</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="points-dialog" class="points-dialog coordinate-inspector">
       <form method="dialog">
         <h3>Coordinates</h3>
-        <p>Edit existing coordinates or paste new ones as <code>label, x, y</code> or <code>x, y</code> (one point per line).</p>
+        <p>Edit existing coordinates or paste new ones as <code>label, x, y</code> or <code></code>x, y</code> (one point per line).</p>
         <textarea id="points-output" rows="12"></textarea>
         <div id="coordinate-validation" class="coordinate-validation" role="status"></div>
         <svg id="coordinate-preview" class="coordinate-preview" viewBox="0 0 300 140" aria-label="Coordinate shape preview"></svg>

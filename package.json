@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:unit": "c8 --all --include=distance.js --include=geometry.js --include=coordinates.js --include=core.js --include=dom.js --include=history.js --check-coverage --lines 90 --functions 90 --branches 90 --statements 90 node --test test/unit/**/*.test.mjs",
+    "test:unit": "c8 --all --include=geometry.js --include=coordinates.js --include=core.js --include=dom.js --include=history.js --check-coverage --lines 90 --functions 90 --branches 90 --statements 90 node --test test/unit/**/*.test.mjs",
     "test:e2e": "playwright test",
     "test": "npm run test:unit && npm run test:e2e"
   },

@@ -67,5 +67,11 @@ export function queryUi(doc) {
     drawPointsBtn: doc.getElementById("draw-points-btn"),
     inlineTextEditor: doc.getElementById("inline-text-editor"),
     vertexEditHint: doc.getElementById("vertex-edit-hint"),
+    numericInputDialog: doc.getElementById("numeric-input-dialog"),
+    numericInputForm: doc.getElementById("numeric-input-form"),
+    numericInputLabel: doc.getElementById("numeric-input-label"),
+    numericInputField: doc.getElementById("numeric-input-field"),
+    numericInputError: doc.getElementById("numeric-input-error"),
+    numericInputCancelBtn: doc.getElementById("numeric-input-cancel"),
   };
 }

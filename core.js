@@ -54,6 +54,7 @@ export function createState() {
       showMinorGrid: true,
       showGridValues: true,
     },
+    pointIndex: new Map(),
   };
 }
 
@@ -64,7 +65,7 @@ export function createId(state) {
 }
 
 export function getPointById(state, pointId) {
-  return state.points.find((point) => point.id === pointId) || null;
+  return state.pointIndex.get(pointId) ?? null;
 }
 
 export function getSegmentById(state, segmentId) {
@@ -79,14 +80,14 @@ export function getTextById(state, textId) {
   return state.texts.find((text) => text.id === textId) || null;
 }
 
-export function addPoint(state, x, y, options = {}) {
+export function addPoint(state, x, y) {
   const point = {
     id: createId(state),
     x: round2(x),
     y: round2(y),
-    label: options.label || `P${state.nextId - 1}`,
   };
   state.points.push(point);
+  state.pointIndex.set(point.id, point);
   return point;
 }
 
@@ -123,16 +124,19 @@ export function addPolygon(state, pointIds) {
 }
 
 export function addText(state, world, content, size = 16) {
-  state.texts.push({
+  const text = {
     id: createId(state),
     x: round2(world.x),
     y: round2(world.y),
     content: content || "Text",
     size,
-  });
+  };
+  state.texts.push(text);
+  return text;
 }
 
 export function removePoint(state, pointId) {
+  state.pointIndex.delete(pointId);
   state.points = state.points.filter((point) => point.id !== pointId);
   state.segments = state.segments.filter((segment) => segment.a !== pointId && segment.b !== pointId);
   state.polygons = state.polygons
@@ -247,6 +251,11 @@ export function normalizeGeometry(state) {
   state.selection.polygons = new Set([...state.selection.polygons].filter((id) => polygonIds.has(id)));
   state.selection.texts = new Set([...state.selection.texts].filter((id) => textIds.has(id)));
   normalizeConstraints(state);
+  rebuildPointIndex(state);
+}
+
+export function rebuildPointIndex(state) {
+  state.pointIndex = new Map(state.points.map((p) => [p.id, p]));
 }
 
 export function getAllEdges(state) {

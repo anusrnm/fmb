@@ -13,7 +13,7 @@ export async function handler(request: Request): Promise<Response> {
   try {
     return await serveFile(request, filePath);
   } catch {
-    return new Response("Not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+    return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
   }
 }
 

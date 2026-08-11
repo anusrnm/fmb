@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.14.0";
+const VERSION = "2.15.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -356,7 +356,6 @@ function applyCoreState(serialized) {
         id: readEntityId(point.id, "point ID", ids),
         x: readFiniteNumber(point.x, "point x coordinate"),
         y: readFiniteNumber(point.y, "point y coordinate"),
-        label: String(point.label || ""),
       }))
     : [];
   const segments = Array.isArray(serialized.segments)
@@ -414,13 +413,12 @@ function applyCoreState(serialized) {
         .filter(Boolean)
     : [];
 
-  const nextId = Math.max(
-    ...ids,
+  const maxExistingId = ids.size > 0 ? Math.max(...ids) : 0;
+  const savedNextId =
     Number.isInteger(Number(serialized.nextId)) && Number(serialized.nextId) > 0
       ? Number(serialized.nextId)
-      : 1
-  );
-  state.nextId = nextId > Math.max(0, ...ids) ? nextId : nextId + 1;
+      : 1;
+  state.nextId = Math.max(maxExistingId + 1, savedNextId);
   state.scale = Number(serialized.scale) || 32;
   state.panX = Number(serialized.panX) || 0;
   state.panY = Number(serialized.panY) || 0;
@@ -786,8 +784,8 @@ function applyAngleStepSnap(baseWorld, targetWorld) {
   };
 }
 
-function addPoint(x, y, options = {}) {
-  return core.addPoint(state, x, y, options);
+function addPoint(x, y) {
+  return core.addPoint(state, x, y);
 }
 
 function addSegment(a, b, kind = "segment") {
@@ -998,6 +996,13 @@ function pointInsidePolygonScreen(screen, polygon) {
 }
 
 function hitTestPolygonLabel(screen) {
+  if (!state.display.showLabels || !state.display.showPolygons) {
+    return null;
+  }
+  // Matches rendered label block: title at origin.y−64, up to 6 metric lines ending near origin.y+29.
+  const HIT_HALF_W = 84;
+  const HIT_TOP    = -68;
+  const HIT_BOTTOM =  38;
   for (let index = state.polygons.length - 1; index >= 0; index -= 1) {
     const polygon = state.polygons[index];
     const points = polygon.pointIds.map((id) => getPointById(id)).filter(Boolean);
@@ -1009,12 +1014,11 @@ function hitTestPolygonLabel(screen) {
       x: centroid.x + (polygon.labelOffset?.x ?? 0),
       y: centroid.y + (polygon.labelOffset?.y ?? 0),
     });
-    // label block spans roughly: x ±70, y from -65 to +40
     if (
-      screen.x >= origin.x - 70 &&
-      screen.x <= origin.x + 70 &&
-      screen.y >= origin.y - 65 &&
-      screen.y <= origin.y + 40
+      screen.x >= origin.x - HIT_HALF_W &&
+      screen.x <= origin.x + HIT_HALF_W &&
+      screen.y >= origin.y + HIT_TOP &&
+      screen.y <= origin.y + HIT_BOTTOM
     ) {
       return polygon;
     }
@@ -1633,7 +1637,10 @@ function renderNow() {
     }
   }
 
-  for (const point of state.points) {
+  for (let pi = 0; pi < state.points.length; pi += 1) {
+    const point = state.points[pi];
+    // Label is position-based (P1, P2, …) so it stays sequential regardless of internal IDs.
+    const pointLabel = `P${pi + 1}`;
     const screenPoint = worldToScreen(point);
     const selected = state.selection.points.has(point.id);
     const hovered = state.hoverTarget?.kind === "point" && state.hoverTarget.item.id === point.id;
@@ -1659,7 +1666,7 @@ function renderNow() {
     }
     if (state.display.showLabels) {
       labelsGroup.append(
-        makeText(screenPoint.x + 8, screenPoint.y - 8, `${point.label} (${round2(point.x)}, ${round2(point.y)})`, {
+        makeText(screenPoint.x + 8, screenPoint.y - 8, `${pointLabel} (${round2(point.x)}, ${round2(point.y)})`, {
           class: selected ? "point-label-text point-label-selected" : "point-label-text",
         })
       );
@@ -1886,19 +1893,48 @@ function pointFromPolar(origin, length, angleDeg) {
   };
 }
 
-function promptLengthAngleInput(message, defaultValue = "10, 0") {
-  const raw = globalThis.prompt(message, defaultValue);
-  if (raw === null) {
-    return { cancelled: true };
-  }
-  const parsed = parseLengthAngleInput(raw);
-  if (!parsed) {
-    return { error: "Enter values as length, angle (degrees), for example: 10, 45." };
-  }
-  return { value: parsed };
+function openNumericInputDialog(message, defaultValue = "10, 0") {
+  return new Promise((resolve) => {
+    ui.numericInputLabel.textContent = message;
+    ui.numericInputField.value = defaultValue;
+    ui.numericInputError.hidden = true;
+    ui.numericInputError.textContent = "";
+    ui.numericInputDialog.showModal();
+    ui.numericInputField.select();
+
+    function onSubmit(event) {
+      event.preventDefault();
+      const parsed = parseLengthAngleInput(ui.numericInputField.value);
+      if (!parsed) {
+        ui.numericInputError.textContent = "Enter length and angle in degrees, e.g. 10, 45.";
+        ui.numericInputError.hidden = false;
+        ui.numericInputField.focus();
+        return;
+      }
+      cleanup();
+      ui.numericInputDialog.close("ok");
+      resolve({ value: parsed });
+    }
+
+    function onCancel() {
+      cleanup();
+      ui.numericInputDialog.close("cancel");
+      resolve({ cancelled: true });
+    }
+
+    function cleanup() {
+      ui.numericInputForm.removeEventListener("submit", onSubmit);
+      ui.numericInputCancelBtn.removeEventListener("click", onCancel);
+      ui.numericInputDialog.removeEventListener("cancel", onCancel);
+    }
+
+    ui.numericInputForm.addEventListener("submit", onSubmit);
+    ui.numericInputCancelBtn.addEventListener("click", onCancel);
+    ui.numericInputDialog.addEventListener("cancel", onCancel);
+  });
 }
 
-function tryNumericSegmentInput() {
+async function tryNumericSegmentInput() {
   if (state.mode !== "segment" || !state.construction || state.construction.tool !== "segment") {
     return false;
   }
@@ -1911,13 +1947,9 @@ function tryNumericSegmentInput() {
     return true;
   }
 
-  const input = promptLengthAngleInput("Segment input: enter length and angle in degrees (length, angle)");
+  const input = await openNumericInputDialog("Segment: length and angle in degrees (length, angle)");
   if (input.cancelled) {
     setStatus("Numeric segment input cancelled.");
-    return true;
-  }
-  if (input.error) {
-    setStatus(input.error, "warning");
     return true;
   }
 
@@ -1939,7 +1971,7 @@ function tryNumericSegmentInput() {
   return true;
 }
 
-function tryNumericPolygonVertexInput() {
+async function tryNumericPolygonVertexInput() {
   if (state.mode !== "polygon" || state.polygonDraft.length === 0) {
     return false;
   }
@@ -1950,13 +1982,9 @@ function tryNumericPolygonVertexInput() {
     return true;
   }
 
-  const input = promptLengthAngleInput("Polygon input: enter next edge as length and angle in degrees (length, angle)");
+  const input = await openNumericInputDialog("Polygon edge: length and angle in degrees (length, angle)");
   if (input.cancelled) {
     setStatus("Numeric polygon input cancelled.");
-    return true;
-  }
-  if (input.error) {
-    setStatus(input.error, "warning");
     return true;
   }
 
@@ -2812,7 +2840,8 @@ function pointsToCoordinateList() {
     return "No points in the current selection.";
   }
 
-  return points.map((point) => `${point.label}, ${round2(point.x)}, ${round2(point.y)}`).join("\n");
+  // Labels are positional (P1, P2, …) matching what the canvas displays.
+  return points.map((point, i) => `P${i + 1}, ${round2(point.x)}, ${round2(point.y)}`).join("\n");
 }
 
 function updateCoordinateInspector() {
@@ -2983,12 +3012,9 @@ function drawShapeFromCoordinateInput() {
       if (existingPoint) {
         existingPoint.x = round2(item.x);
         existingPoint.y = round2(item.y);
-        if (item.label) {
-          existingPoint.label = item.label;
-        }
         nextPointIds.push(existingPoint.id);
       } else {
-        const point = addPoint(item.x, item.y, item.label ? { label: item.label } : {});
+        const point = addPoint(item.x, item.y);
         nextPointIds.push(point.id);
       }
     }
@@ -3013,7 +3039,7 @@ function drawShapeFromCoordinateInput() {
 
   const pointIds = [];
   for (const item of parsed) {
-    const point = addPoint(item.x, item.y, item.label ? { label: item.label } : {});
+    const point = addPoint(item.x, item.y);
     pointIds.push(point.id);
   }
 
@@ -3100,7 +3126,7 @@ function removePolygonVertex(pointId, polygonId = null) {
   normalizeGeometry();
   pushHistory("Remove polygon vertex");
   render();
-  setStatus(`Removed vertex ${point.label} from polygon.`, "success");
+  setStatus(`Removed vertex at (${round2(point.x)}, ${round2(point.y)}).`, "success");
   return true;
 }
 
@@ -3377,19 +3403,19 @@ function handleImport(event) {
   }
 
   const reader = new FileReader();
-  reader.onload = async () => {
+  reader.onload = () => {
     const text = typeof reader.result === "string" ? reader.result : "";
-    await importFromText(file.name, text);
+    importFromText(file.name, text);
     ui.importFile.value = "";
   };
   reader.readAsText(file);
 }
 
 function initializeDemoGeometry() {
-  const p1 = addPoint(-8, -4, { label: "A" });
-  const p2 = addPoint(6, -2, { label: "B" });
-  const p3 = addPoint(9, 7, { label: "C" });
-  const p4 = addPoint(-5, 9, { label: "D" });
+  const p1 = addPoint(-8, -4);
+  const p2 = addPoint(6, -2);
+  const p3 = addPoint(9, 7);
+  const p4 = addPoint(-5, 9);
   addPolygon([p1.id, p2.id, p3.id, p4.id]);
   addSegment(p1.id, p3.id, "segment");
   addText({ x: 1, y: 2 }, "Title Goes Here", 18);
@@ -3405,14 +3431,18 @@ function isEditingTextInput(target) {
   return target.closest("input, textarea, select, [contenteditable='true']") !== null;
 }
 
-function handleKeyDown(event) {
+async function handleKeyDown(event) {
   if (isEditingTextInput(event.target)) {
     return;
   }
 
   if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
-    if (tryNumericSegmentInput() || tryNumericPolygonVertexInput()) {
+    const willHandle =
+      (state.mode === "segment" && state.construction?.tool === "segment") ||
+      (state.mode === "polygon" && state.polygonDraft.length > 0);
+    if (willHandle) {
       event.preventDefault();
+      await tryNumericSegmentInput() || await tryNumericPolygonVertexInput();
       return;
     }
   }
@@ -3841,7 +3871,7 @@ function wireEvents() {
   addTrackedEvent(ui.viewPointsBtn, "click", () => {
     hideContextMenu();
     if (ui.viewPointsBtn.dataset.context === "empty") {
-      showPointListDialog("A, 0, 0\nB, 5, 0\nC, 4, 3\nD, 1, 4");
+      showPointListDialog("0, 0\n5, 0\n4, 3\n1, 4");
       setStatus("Enter coordinates and choose Draw Shape.");
       return;
     }

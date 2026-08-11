@@ -749,6 +749,26 @@ svg text.angle-label-preview {
   font-size: var(--fs-coordinate-validation);
 }
 
+.numeric-input-dialog {
+  width: min(360px, calc(100vw - 28px));
+}
+
+.numeric-input-dialog input[type="text"] {
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--bg-3);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+}
+
+.numeric-input-dialog input[type="text"]:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
 .coordinate-validation[data-tone="success"] {
   color: #0f766e;
 }

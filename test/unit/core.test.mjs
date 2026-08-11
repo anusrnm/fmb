@@ -19,6 +19,7 @@ import {
   isPointLocked,
   polygonArea,
   polygonPerimeter,
+  rebuildPointIndex,
   removePointLockConstraint,
   removePoint,
   serializeCoreState,
@@ -27,10 +28,10 @@ import {
 
 function squareState() {
   const state = createState();
-  const a = addPoint(state, 0, 0, { label: "A" });
-  const b = addPoint(state, 4, 0, { label: "B" });
-  const c = addPoint(state, 4, 4, { label: "C" });
-  const d = addPoint(state, 0, 4, { label: "D" });
+  const a = addPoint(state, 0, 0);
+  const b = addPoint(state, 4, 0);
+  const c = addPoint(state, 4, 4);
+  const d = addPoint(state, 0, 4);
   const polygon = addPolygon(state, [a.id, b.id, c.id, d.id]);
   return { state, a, b, c, d, polygon };
 }
@@ -51,12 +52,44 @@ test("createId increments the sequence", () => {
   assert.equal(state.nextId, 3);
 });
 
-test("addPoint rounds coordinates and auto-labels", () => {
+test("addPoint rounds coordinates and assigns an integer id", () => {
   const state = createState();
   const point = addPoint(state, 1.239, -2.005);
   assert.deepEqual({ x: point.x, y: point.y }, { x: 1.24, y: -2 });
-  assert.equal(point.label, "P1");
-  assert.equal(addPoint(state, 0, 0, { label: "Origin" }).label, "Origin");
+  assert.equal(point.id, 1);
+  assert.equal("label" in point, false, "points must not carry a label property");
+  const second = addPoint(state, 0, 0);
+  assert.equal(second.id, 2);
+});
+
+test("pointIndex is populated by addPoint and cleared by removePoint", () => {
+  const state = createState();
+  const p = addPoint(state, 1, 2);
+  assert.equal(state.pointIndex.get(p.id), p, "addPoint must insert into pointIndex");
+  assert.equal(getPointById(state, p.id), p, "getPointById must use the index");
+  removePoint(state, p.id);
+  assert.equal(state.pointIndex.has(p.id), false, "removePoint must delete from pointIndex");
+  assert.equal(getPointById(state, p.id), null);
+});
+
+test("rebuildPointIndex restores lookup after direct state mutation", () => {
+  const state = createState();
+  const p = addPoint(state, 0, 0);
+  state.points = []; // bypass addPoint/removePoint
+  state.pointIndex.clear = state.pointIndex.clear.bind(state.pointIndex);
+  rebuildPointIndex(state);
+  assert.equal(state.pointIndex.has(p.id), false, "index reflects mutated state.points");
+});
+
+test("normalizeGeometry keeps pointIndex consistent after pruning", () => {
+  const { state, a, b, c, d } = squareState();
+  // Force-remove a point from the array without going through removePoint.
+  state.points = state.points.filter((pt) => pt.id !== a.id);
+  normalizeGeometry(state);
+  assert.equal(state.pointIndex.has(a.id), false);
+  assert.ok(state.pointIndex.has(b.id));
+  assert.ok(state.pointIndex.has(c.id));
+  assert.ok(state.pointIndex.has(d.id));
 });
 
 test("addSegment rejects self-loops and duplicates regardless of order", () => {
@@ -78,18 +111,19 @@ test("addPolygon requires at least three point ids", () => {
   assert.deepEqual(polygon.labelOffset, { x: 0, y: 0 });
 });
 
-test("addText applies defaults and rounding", () => {
+test("addText applies defaults, rounds coordinates, and returns the entity", () => {
   const state = createState();
-  addText(state, { x: 1.111, y: 2.222 });
-  const [text] = state.texts;
+  const text = addText(state, { x: 1.111, y: 2.222 });
+  assert.ok(text, "addText must return the created entity");
+  assert.equal(text.id, 1);
   assert.deepEqual({ x: text.x, y: text.y, content: text.content, size: text.size }, {
     x: 1.11,
     y: 2.22,
     content: "Text",
     size: 16,
   });
-  addText(state, { x: 0, y: 0 }, "Label", 24);
-  assert.equal(getTextById(state, state.texts[1].id).size, 24);
+  const second = addText(state, { x: 0, y: 0 }, "Label", 24);
+  assert.equal(getTextById(state, second.id).size, 24);
 });
 
 test("removePoint cascades to segments, polygons, and selection", () => {
@@ -219,4 +253,25 @@ test("serializeCoreState captures the version and core arrays", () => {
   assert.equal(snapshot.points.length, 4);
   assert.equal(snapshot.polygons.length, 1);
   assert.equal(snapshot.constraints.length, 1);
+});
+
+test("serializeCoreState preserves nextId so gaps after deletion are maintained", () => {
+  const state = createState();
+  const p = addPoint(state, 0, 0);
+  addPoint(state, 1, 0);
+  // Remove second point; nextId stays at 3 — not 2.
+  state.points = state.points.filter((pt) => pt.id !== p.id);
+  state.nextId = 3;
+  const snapshot = serializeCoreState(state, "1.0.0");
+  assert.equal(snapshot.nextId, 3);
+  // A fresh state restored from snapshot should start IDs at 3, not 2.
+  const restored = createState();
+  restored.points = snapshot.points.map((pt) => ({ ...pt }));
+  const maxId = restored.points.reduce((m, pt) => Math.max(m, pt.id), 0);
+  const savedNextId =
+    Number.isInteger(Number(snapshot.nextId)) && Number(snapshot.nextId) > 0
+      ? Number(snapshot.nextId)
+      : 1;
+  restored.nextId = Math.max(maxId + 1, savedNextId);
+  assert.equal(restored.nextId, 3);
 });

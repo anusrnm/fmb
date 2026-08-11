@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  calculateDistance,
+  distanceWorld,
   calculateInteriorAngles,
   calculatePerimeter,
   findSelfIntersections,
-} from "../../distance.js";
+} from "../../geometry.js";
 
-test("calculateDistance handles diagonal and horizontal distances", () => {
-  assert.equal(calculateDistance({ x: 0, y: 0 }, { x: 3, y: 4 }), 5);
-  assert.equal(calculateDistance({ x: -2, y: 4 }, { x: 5, y: 4 }), 7);
+test("distanceWorld handles diagonal and horizontal distances", () => {
+  assert.equal(distanceWorld({ x: 0, y: 0 }, { x: 3, y: 4 }), 5);
+  assert.equal(distanceWorld({ x: -2, y: 4 }, { x: 5, y: 4 }), 7);
 });
 
 test("calculatePerimeter closes polygons and rejects incomplete input", () => {

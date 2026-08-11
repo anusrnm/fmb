@@ -3,10 +3,13 @@ import test from "node:test";
 import {
   angleCandidateKey,
   areaConversions,
+  calculateInteriorAngles,
+  calculatePerimeter,
   clamp,
   distancePointToSegmentScreen,
   distanceScreen,
   distanceWorld,
+  findSelfIntersections,
   normalizeAngleRadians,
   projectPointToSegment,
   round2,
@@ -78,4 +81,28 @@ test("angleCandidateKey is stable regardless of arm order", () => {
     angleCandidateKey({ vertexId: 1, aId: 2, bId: 3 })
   );
   assert.equal(angleCandidateKey({ vertexId: 1, aId: 2, bId: 3 }), "1:2:3");
+});
+
+test("calculatePerimeter closes polygon and rejects degenerate input", () => {
+  const rect = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }];
+  assert.equal(calculatePerimeter(rect), 14);
+  assert.equal(calculatePerimeter([{ x: 0, y: 0 }, { x: 3, y: 4 }]), 5);
+  assert.equal(calculatePerimeter([{ x: 0, y: 0 }]), 0);
+  assert.equal(calculatePerimeter(null), 0);
+});
+
+test("calculateInteriorAngles returns angles and handles zero-length vectors", () => {
+  const square = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }];
+  assert.deepEqual(calculateInteriorAngles(square), [90, 90, 90, 90]);
+  assert.deepEqual(calculateInteriorAngles([{ x: 0, y: 0 }]), []);
+  const dup = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 4, y: 0 }];
+  assert.equal(calculateInteriorAngles(dup)[0], null);
+});
+
+test("findSelfIntersections detects crossings and ignores adjacent edges", () => {
+  const square = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }];
+  const bowTie = [{ x: 0, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }, { x: 4, y: 0 }];
+  assert.deepEqual(findSelfIntersections(square), []);
+  assert.deepEqual(findSelfIntersections(bowTie), [{ segmentA: 0, segmentB: 2 }]);
+  assert.deepEqual(findSelfIntersections([{ x: 0, y: 0 }]), []);
 });
