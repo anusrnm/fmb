@@ -676,14 +676,21 @@ svg text.angle-label-preview {
 .context-menu {
   position: fixed;
   z-index: 60;
+  display: grid;
+  gap: 6px;
   border-radius: 10px;
   padding: 6px;
   background: var(--surface-strong);
   border: 1px solid rgba(85, 100, 113, 0.2);
   box-shadow: var(--shadow);
 }
+.context-menu[hidden] {
+  display: none !important;
+}
 
 .context-menu button {
+  display: block;
+  width: 100%;
   min-width: 220px;
   text-align: left;
   padding: 8px 10px;

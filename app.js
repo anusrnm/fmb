@@ -14,11 +14,12 @@ import {
   parseCoordinatesText,
   normalizeCoordinateLoop,
 } from "./coordinates.js";
+import "./vendor/polygon-clipping.umd.js";
 import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.13.0";
+const VERSION = "2.14.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -52,6 +53,7 @@ let historyActions = [];
 let lastAutosaveSnapshot = "";
 let contextMenuEdgePick = null;
 let contextMenuVertexPointId = null;
+let suppressGraphContextMenuOpen = false;
 const perfCounters = {
   renderNowCalls: 0,
   gridCacheHits: 0,
@@ -1182,13 +1184,13 @@ function setMode(mode) {
   if (mode === "select") {
     setStatus("Select mode: click to select and drag. Delete removes selected objects.");
   } else if (mode === "polygon") {
-    setStatus("Polygon mode: click to place vertices, click the first vertex or Ctrl/Cmd+click to close.");
+    setStatus("Polygon mode: click to place vertices, Enter for numeric edge input, click the first vertex or Ctrl/Cmd+click to close.");
   } else if (mode === "angle") {
     setStatus("Angle mode: click a highlighted angle to keep it as annotation.");
   } else if (mode === "midpoint") {
     setStatus("Mid Point mode: click an existing line to insert a point on it.");
   } else if (mode === "segment") {
-    setStatus("Segment mode: click two points to create a segment.");
+    setStatus("Segment mode: click two points or press Enter after first click for numeric length/angle input.");
   } else if (mode === "parallel") {
     setStatus("Parallel mode: select a base segment, then click where the new line should pass.");
   } else if (mode === "perpendicular") {
@@ -1855,6 +1857,122 @@ function resolvePointForDrawing(worldPoint) {
     return snapped.point;
   }
   return addPoint(snapped.x, snapped.y);
+}
+
+function parseLengthAngleInput(raw) {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const parts = raw
+    .trim()
+    .split(/[\s,]+/)
+    .filter(Boolean);
+  if (parts.length !== 2) {
+    return null;
+  }
+  const length = Number(parts[0]);
+  const angleDeg = Number(parts[1]);
+  if (!Number.isFinite(length) || length <= 0 || !Number.isFinite(angleDeg)) {
+    return null;
+  }
+  return { length, angleDeg };
+}
+
+function pointFromPolar(origin, length, angleDeg) {
+  const angleRad = (angleDeg * Math.PI) / 180;
+  return {
+    x: round2(origin.x + length * Math.cos(angleRad)),
+    y: round2(origin.y + length * Math.sin(angleRad)),
+  };
+}
+
+function promptLengthAngleInput(message, defaultValue = "10, 0") {
+  const raw = globalThis.prompt(message, defaultValue);
+  if (raw === null) {
+    return { cancelled: true };
+  }
+  const parsed = parseLengthAngleInput(raw);
+  if (!parsed) {
+    return { error: "Enter values as length, angle (degrees), for example: 10, 45." };
+  }
+  return { value: parsed };
+}
+
+function tryNumericSegmentInput() {
+  if (state.mode !== "segment" || !state.construction || state.construction.tool !== "segment") {
+    return false;
+  }
+
+  const firstPoint = getPointById(state.construction.firstPointId);
+  if (!firstPoint) {
+    state.construction = null;
+    setStatus("First segment point no longer exists.", "warning");
+    render();
+    return true;
+  }
+
+  const input = promptLengthAngleInput("Segment input: enter length and angle in degrees (length, angle)");
+  if (input.cancelled) {
+    setStatus("Numeric segment input cancelled.");
+    return true;
+  }
+  if (input.error) {
+    setStatus(input.error, "warning");
+    return true;
+  }
+
+  const target = pointFromPolar(firstPoint, input.value.length, input.value.angleDeg);
+  const secondPoint = addPoint(target.x, target.y);
+  const segment = addSegment(firstPoint.id, secondPoint.id, "segment");
+  state.construction = null;
+  if (!segment) {
+    removePoint(secondPoint.id);
+    syncNextIdWithState();
+    render();
+    setStatus("That segment already exists.", "warning");
+    return true;
+  }
+
+  pushHistory("Create segment from numeric input");
+  render();
+  setStatus(`Segment created from numeric input (${round2(input.value.length)} @ ${round2(input.value.angleDeg)}deg).`, "success");
+  return true;
+}
+
+function tryNumericPolygonVertexInput() {
+  if (state.mode !== "polygon" || state.polygonDraft.length === 0) {
+    return false;
+  }
+
+  const previousPoint = getPointById(state.polygonDraft[state.polygonDraft.length - 1]);
+  if (!previousPoint) {
+    setStatus("Previous polygon vertex no longer exists.", "warning");
+    return true;
+  }
+
+  const input = promptLengthAngleInput("Polygon input: enter next edge as length and angle in degrees (length, angle)");
+  if (input.cancelled) {
+    setStatus("Numeric polygon input cancelled.");
+    return true;
+  }
+  if (input.error) {
+    setStatus(input.error, "warning");
+    return true;
+  }
+
+  const target = pointFromPolar(previousPoint, input.value.length, input.value.angleDeg);
+  const point = addPoint(target.x, target.y);
+  state.polygonDraft.push(point.id);
+  state.polygonDraftCreatedPointIds.add(point.id);
+
+  const draftArea = state.polygonDraft.length >= 3 ? polygonArea(state.polygonDraft) : 0;
+  render();
+  setStatus(
+    state.polygonDraft.length >= 3
+      ? `Polygon drafting: ${state.polygonDraft.length} vertices, preview area ${round2(draftArea)} sq units.`
+      : `Polygon drafting: ${state.polygonDraft.length} vertex added.`
+  );
+  return true;
 }
 
 function handleModeAction(screen, world, event = null) {
@@ -2765,6 +2883,69 @@ function pointIsUsedOutsidePolygon(pointId, polygonId) {
   return state.polygons.some((polygon) => polygon.id !== polygonId && polygon.pointIds.includes(pointId));
 }
 
+function pointIsUsedOutsidePolygons(pointId, polygonIdSet) {
+  if (state.segments.some((segment) => segment.a === pointId || segment.b === pointId)) {
+    return true;
+  }
+
+  if (state.angleAnnotations.some((item) => item.vertexId === pointId || item.aId === pointId || item.bId === pointId)) {
+    return true;
+  }
+
+  return state.polygons.some((polygon) => !polygonIdSet.has(polygon.id) && polygon.pointIds.includes(pointId));
+}
+
+function polygonToClippingInput(polygon) {
+  const points = polygon.pointIds.map((pointId) => getPointById(pointId)).filter(Boolean);
+  if (points.length < 3) {
+    return null;
+  }
+  const ring = points.map((point) => [point.x, point.y]);
+  ring.push([points[0].x, points[0].y]);
+  return [ring];
+}
+
+function ringToPointIds(ring) {
+  if (!Array.isArray(ring) || ring.length < 4) {
+    return [];
+  }
+
+  const unique = [];
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    const item = ring[index];
+    if (!Array.isArray(item) || item.length < 2) {
+      continue;
+    }
+    const x = round2(Number(item[0]));
+    const y = round2(Number(item[1]));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      continue;
+    }
+    const previous = unique[unique.length - 1];
+    if (!previous || previous.x !== x || previous.y !== y) {
+      unique.push({ x, y });
+    }
+  }
+
+  if (unique.length >= 2) {
+    const first = unique[0];
+    const last = unique[unique.length - 1];
+    if (first.x === last.x && first.y === last.y) {
+      unique.pop();
+    }
+  }
+
+  if (unique.length < 3) {
+    return [];
+  }
+
+  const pointIds = [];
+  for (const point of unique) {
+    pointIds.push(addPoint(point.x, point.y).id);
+  }
+  return pointIds;
+}
+
 function drawShapeFromCoordinateInput() {
   let parsed;
   try {
@@ -2984,6 +3165,97 @@ function clearAllConstraints() {
   };
 }
 
+function runPolygonBooleanOperation(operation) {
+  const selectedPolygonIds = [...state.selection.polygons];
+  if (selectedPolygonIds.length !== 2) {
+    setStatus("Select exactly two polygons to run a boolean operation.", "warning");
+    return;
+  }
+
+  const subjectPolygon = getPolygonById(selectedPolygonIds[0]);
+  const clipPolygon = getPolygonById(selectedPolygonIds[1]);
+  if (!subjectPolygon || !clipPolygon) {
+    setStatus("Selected polygons are no longer available.", "warning");
+    return;
+  }
+
+  const subjectInput = polygonToClippingInput(subjectPolygon);
+  const clipInput = polygonToClippingInput(clipPolygon);
+  if (!subjectInput || !clipInput) {
+    setStatus("Selected polygons are invalid for boolean operations.", "warning");
+    return;
+  }
+
+  const polygonClipping = globalThis.polygonClipping;
+  if (!polygonClipping) {
+    setStatus("Polygon boolean engine is unavailable.", "error");
+    return;
+  }
+
+  let result = null;
+  try {
+    if (operation === "union") {
+      result = polygonClipping.union(subjectInput, clipInput);
+    } else if (operation === "subtract") {
+      result = polygonClipping.difference(subjectInput, clipInput);
+    } else if (operation === "intersect") {
+      result = polygonClipping.intersection(subjectInput, clipInput);
+    }
+  } catch {
+    setStatus("Polygon boolean operation failed. Check polygon geometry and try again.", "error");
+    return;
+  }
+
+  const selectedSet = new Set(selectedPolygonIds);
+  const removedPointIds = new Set(
+    [subjectPolygon, clipPolygon].flatMap((polygon) => polygon.pointIds)
+  );
+
+  state.polygons = state.polygons.filter((polygon) => !selectedSet.has(polygon.id));
+
+  for (const pointId of removedPointIds) {
+    if (!pointIsUsedOutsidePolygons(pointId, selectedSet)) {
+      removePoint(pointId);
+    }
+  }
+
+  const createdPolygonIds = [];
+  const multipolygon = Array.isArray(result) ? result : [];
+  for (const polygonCoords of multipolygon) {
+    if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) {
+      continue;
+    }
+    const outerRing = polygonCoords[0];
+    const pointIds = ringToPointIds(outerRing);
+    if (pointIds.length < 3) {
+      continue;
+    }
+    const polygon = addPolygon(pointIds);
+    if (polygon) {
+      createdPolygonIds.push(polygon.id);
+    }
+  }
+
+  clearSelection();
+  for (const polygonId of createdPolygonIds) {
+    state.selection.polygons.add(polygonId);
+  }
+
+  normalizeGeometry();
+  syncNextIdWithState();
+  pushHistory(`Polygon ${operation}`);
+  render();
+
+  if (createdPolygonIds.length === 0) {
+    setStatus(`Polygon ${operation} created no remaining area.`, "warning");
+    return;
+  }
+  setStatus(
+    `Polygon ${operation} complete (${createdPolygonIds.length} result polygon${createdPolygonIds.length === 1 ? "" : "s"}).`,
+    "success"
+  );
+}
+
 function updateConstraintsPanel() {
   if (!ui.constraintsSummary || !ui.lockSelectedBtn || !ui.unlockSelectedBtn || !ui.clearConstraintsBtn) {
     return;
@@ -3138,6 +3410,13 @@ function handleKeyDown(event) {
     return;
   }
 
+  if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+    if (tryNumericSegmentInput() || tryNumericPolygonVertexInput()) {
+      event.preventDefault();
+      return;
+    }
+  }
+
   if (event.key === "?" && !event.ctrlKey && !event.metaKey) {
     event.preventDefault();
     ui.helpDialog.showModal();
@@ -3187,6 +3466,10 @@ function handleKeyDown(event) {
   }
 
   if (event.key === "Escape") {
+    if (!ui.contextMenu.hidden) {
+      hideContextMenu();
+      return;
+    }
     if (isInlineEditorOpen()) {
       closeInlineTextEditor(false, true);
       return;
@@ -3505,6 +3788,14 @@ function wireEvents() {
 
   addTrackedEvent(ui.graph, "contextmenu", (event) => {
     event.preventDefault();
+    if (suppressGraphContextMenuOpen) {
+      suppressGraphContextMenuOpen = false;
+      return;
+    }
+    if (!ui.contextMenu.hidden) {
+      hideContextMenu();
+      return;
+    }
     const screen = getScreenPointFromEvent(event);
     const world = screenToWorld(screen);
     const hitPoint = hitTestPoint(screen);
@@ -3522,14 +3813,27 @@ function wireEvents() {
       !hitSegment &&
       !hitPolygon;
     if (hitPolygon) {
-      clearSelection();
-      state.selection.polygons.add(hitPolygon.id);
+      const keepMultiSelection =
+        state.selection.polygons.size > 1 &&
+        state.selection.polygons.has(hitPolygon.id);
+      if (!keepMultiSelection) {
+        clearSelection();
+        state.selection.polygons.add(hitPolygon.id);
+      }
       render();
     }
     contextMenuEdgePick = polygonEdgePick;
     contextMenuVertexPointId = removablePolygon ? hitPoint.id : null;
+    ui.joinPointsBtn.hidden = state.selection.points.size < 2;
     ui.insertPolygonVertexBtn.hidden = !polygonEdgePick;
     ui.removePolygonVertexBtn.hidden = !removablePolygon;
+    const canRunPolygonBoolean = state.selection.polygons.size === 2;
+    ui.polygonUnionBtn.hidden = !canRunPolygonBoolean;
+    ui.polygonSubtractBtn.hidden = !canRunPolygonBoolean;
+    ui.polygonIntersectBtn.hidden = !canRunPolygonBoolean;
+    ui.polygonUnionBtn.disabled = !canRunPolygonBoolean;
+    ui.polygonSubtractBtn.disabled = !canRunPolygonBoolean;
+    ui.polygonIntersectBtn.disabled = !canRunPolygonBoolean;
     ui.viewPointsBtn.dataset.context = isEmptyArea ? "empty" : "objects";
     showContextMenu(event.clientX, event.clientY);
   });
@@ -3564,6 +3868,21 @@ function wireEvents() {
     removePolygonVertex(pointId);
   });
 
+  addTrackedEvent(ui.polygonUnionBtn, "click", () => {
+    hideContextMenu();
+    runPolygonBooleanOperation("union");
+  });
+
+  addTrackedEvent(ui.polygonSubtractBtn, "click", () => {
+    hideContextMenu();
+    runPolygonBooleanOperation("subtract");
+  });
+
+  addTrackedEvent(ui.polygonIntersectBtn, "click", () => {
+    hideContextMenu();
+    runPolygonBooleanOperation("intersect");
+  });
+
   addTrackedEvent(ui.copyPointsBtn, "click", async () => {
     ui.pointsOutput.select();
     try {
@@ -3581,11 +3900,29 @@ function wireEvents() {
     drawShapeFromCoordinateInput();
   });
 
-  addTrackedEvent(globalThis, "click", (event) => {
-    if (event.target !== ui.contextMenu && !ui.contextMenu.contains(event.target)) {
+  addTrackedEvent(globalThis, "pointerdown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    if (!(event.target instanceof Node) || !ui.contextMenu.contains(event.target)) {
       hideContextMenu();
     }
-  });
+  }, true);
+
+  addTrackedEvent(globalThis, "contextmenu", (event) => {
+    if (!ui.contextMenu.hidden) {
+      suppressGraphContextMenuOpen = true;
+      hideContextMenu();
+      if (event.target instanceof Node && (ui.graph.contains(event.target) || ui.contextMenu.contains(event.target))) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+    if (!(event.target instanceof Node) || (!ui.graph.contains(event.target) && !ui.contextMenu.contains(event.target))) {
+      hideContextMenu();
+    }
+  }, true);
 
   addTrackedEvent(globalThis, "keydown", handleKeyDown);
   addTrackedEvent(globalThis, "resize", render);

@@ -36,6 +36,9 @@ test("queryUi resolves elements by id and returns them", () => {
   assert.deepEqual(ui.lockSelectedBtn, { id: "lock-selected-btn" });
   assert.deepEqual(ui.unlockSelectedBtn, { id: "unlock-selected-btn" });
   assert.deepEqual(ui.clearConstraintsBtn, { id: "clear-constraints-btn" });
+  assert.deepEqual(ui.polygonUnionBtn, { id: "polygon-union-btn" });
+  assert.deepEqual(ui.polygonSubtractBtn, { id: "polygon-subtract-btn" });
+  assert.deepEqual(ui.polygonIntersectBtn, { id: "polygon-intersect-btn" });
   assert.deepEqual(ui.resetSettingsBtn, { id: "reset-settings-btn" });
   assert.deepEqual(ui.inlineTextEditor, { id: "inline-text-editor" });
   assert.deepEqual(ui.vertexEditHint, { id: "vertex-edit-hint" });
