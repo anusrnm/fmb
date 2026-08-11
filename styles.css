@@ -29,9 +29,7 @@
   --control-fg: #1f2a32;
   --status-bg: rgba(255, 255, 255, 0.86);
   --status-border: rgba(15, 118, 110, 0.2);
-  --text-halo: #ffffff;
   --segment-length-color: #556471;
-  --segment-length-halo: #ffffff;
   --area-metric-color: #556471;
   --area-metric-halo: #ffffff;
   --point-label-color: #556471;
@@ -39,6 +37,44 @@
   --user-text-selected-color: #b45309;
   --angle-label-pinned-color: #0f766e;
   --angle-label-preview-color: rgba(15, 118, 110, 0.8);
+
+  --fs-brand-title: 1.08rem;
+  --fs-version-badge: 0.75rem;
+  --fs-tool-icon: 0.88rem;
+  --fs-tool-select: 0.72rem;
+  --fs-button-icon: 1.02rem;
+  --fs-tool-label: 0.62rem;
+  --fs-grid-value: 10px;
+  --fs-point-label: 11px;
+  --fs-area-metric: 12px;
+  --fs-area-metric-title: 14px;
+  --fs-segment-length: 12px;
+  --fs-angle-label: 10px;
+  --fs-status-pill: 0.85rem;
+  --fs-inline-text-editor: 14px;
+  --fs-settings-h2: 1rem;
+  --fs-settings-legend: 0.76rem;
+  --fs-toggle-row: 0.88rem;
+  --fs-points-dialog-p: 0.88rem;
+  --fs-points-dialog-textarea: 0.84rem;
+  --fs-coordinate-validation: 0.8rem;
+  --fs-command-kbd: 0.76rem;
+
+  --fs-tool-icon-md: 0.94rem;
+  --fs-tool-select-md: 0.76rem;
+  --fs-brand-title-md: 0.96rem;
+  --fs-version-badge-md: 0.66rem;
+  --fs-icon-btn-md: 0.92rem;
+  --fs-tool-icon-strong-md: 1.08rem;
+  --fs-tool-label-md: 0.7rem;
+
+  --fs-segment-length-sm: 13px;
+  --fs-user-text-sm: max(13px, 0.86rem);
+  --fs-area-metric-sm: max(14px, 0.94rem);
+  --fs-icon-btn-sm: 0.88rem;
+
+  --fs-brand-title-xs: 0.9rem;
+  --fs-version-badge-xs: 0.58rem;
 }
 
 :root[data-theme="dark"] {
@@ -65,9 +101,7 @@
   --control-fg: #e6edf3;
   --status-bg: rgba(18, 29, 39, 0.9);
   --status-border: rgba(76, 212, 202, 0.24);
-  --text-halo: #0f1b26;
   --segment-length-color: #9ab0c1;
-  --segment-length-halo: #0f1b26;
   --area-metric-color: #9ab0c1;
   --area-metric-halo: #0f1b26;
   --point-label-color: #9ab0c1;
@@ -136,7 +170,7 @@ body {
 
 .brand-wrap h1 {
   margin: 0;
-  font-size: 1.08rem;
+  font-size: var(--fs-brand-title);
   letter-spacing: 0.03em;
 }
 
@@ -157,7 +191,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: var(--fs-version-badge);
   color: var(--brand-strong);
   background: rgba(15, 118, 110, 0.12);
   border: 1px solid rgba(15, 118, 110, 0.22);
@@ -224,7 +258,7 @@ body {
 }
 
 .tool-select-wrap .icon {
-  font-size: 0.88rem;
+  font-size: var(--fs-tool-icon);
   line-height: 1;
   color: var(--control-fg);
   letter-spacing: 0.02em;
@@ -236,7 +270,7 @@ body {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.82);
   color: var(--control-fg);
-  font-size: 0.72rem;
+  font-size: var(--fs-tool-select);
   font-weight: 600;
   height: 23px;
   padding: 0 4px;
@@ -253,13 +287,13 @@ body {
 
 .tool-btn .icon,
 .icon-btn .icon {
-  font-size: 1.02rem;
+  font-size: var(--fs-button-icon);
   line-height: 1;
   letter-spacing: 0.03em;
 }
 
 .tool-btn .label {
-  font-size: 0.62rem;
+  font-size: var(--fs-tool-label);
   font-weight: 600;
   color: var(--ink-muted);
 }
@@ -364,12 +398,12 @@ svg.mode-box-select {
 
 svg text.grid-value-text {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-grid-value);
   fill: var(--grid-value);
 }
 
 svg text.point-label-text {
-  font-size: 11px;
+  font-size: var(--fs-point-label);
   fill: var(--point-label-color);
   font-weight: 500;
 }
@@ -381,7 +415,7 @@ svg text.point-label-selected {
 svg text.area-metric-text {
   font-family: var(--font-mono);
   text-anchor: middle;
-  font-size: 12px;
+  font-size: var(--fs-area-metric);
   fill: var(--area-metric-color);
   font-weight: 600;
   paint-order: stroke;
@@ -391,20 +425,16 @@ svg text.area-metric-text {
 }
 
 svg text.area-metric-title {
-  font-size: 14px;
+  font-size: var(--fs-area-metric-title);
   font-weight: 700;
 }
 
 svg text.segment-length-text {
   font-family: var(--font-mono);
   text-anchor: middle;
-  font-size: 12px;
+  font-size: var(--fs-segment-length);
   fill: var(--segment-length-color);
   font-weight: 600;
-  paint-order: stroke;
-  stroke: var(--segment-length-halo);
-  stroke-width: 3;
-  stroke-opacity: 0.68;
 }
 
 svg text.user-text {
@@ -412,10 +442,6 @@ svg text.user-text {
   text-anchor: middle;
   fill: var(--user-text-color);
   font-weight: 500;
-  paint-order: stroke;
-  stroke: var(--text-halo);
-  stroke-width: 4;
-  stroke-opacity: 0.9;
 }
 
 svg text.user-text-selected {
@@ -430,13 +456,9 @@ svg text.user-text-hovered {
 
 svg text.angle-label-text {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-angle-label);
   text-anchor: middle;
   font-weight: 700;
-  paint-order: stroke;
-  stroke: var(--text-halo);
-  stroke-width: 3;
-  stroke-opacity: 0.7;
 }
 
 svg text.angle-label-pinned {
@@ -457,7 +479,7 @@ svg text.angle-label-preview {
   border: 1px solid var(--status-border);
   background: var(--status-bg);
   color: var(--ink-muted);
-  font-size: 0.85rem;
+  font-size: var(--fs-status-pill);
   line-height: 1.25;
   backdrop-filter: blur(8px);
 }
@@ -492,7 +514,7 @@ svg text.angle-label-preview {
   -webkit-text-fill-color: var(--ink);
   caret-color: var(--ink);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
-  font-size: 14px;
+  font-size: var(--fs-inline-text-editor);
   appearance: none;
   -webkit-appearance: none;
   opacity: 1;
@@ -520,7 +542,7 @@ svg text.angle-label-preview {
 
 .settings-panel h2 {
   margin: 0 0 8px;
-  font-size: 1rem;
+  font-size: var(--fs-settings-h2);
 }
 
 .settings-panel fieldset {
@@ -532,7 +554,7 @@ svg text.angle-label-preview {
 .settings-panel legend {
   padding: 0 5px;
   color: var(--ink-muted);
-  font-size: 0.76rem;
+  font-size: var(--fs-settings-legend);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -542,7 +564,7 @@ svg text.angle-label-preview {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  font-size: 0.88rem;
+  font-size: var(--fs-toggle-row);
 }
 
 .settings-panel button {
@@ -595,7 +617,7 @@ svg text.angle-label-preview {
 .points-dialog p {
   margin: 0 0 10px;
   color: var(--ink-muted);
-  font-size: 0.88rem;
+  font-size: var(--fs-points-dialog-p);
 }
 
 .points-dialog textarea {
@@ -603,7 +625,7 @@ svg text.angle-label-preview {
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   padding: 10px;
-  font-size: 0.84rem;
+  font-size: var(--fs-points-dialog-textarea);
   resize: vertical;
 }
 
@@ -621,7 +643,7 @@ svg text.angle-label-preview {
   min-height: 28px;
   padding: 7px 2px 3px;
   color: var(--ink-muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-coordinate-validation);
 }
 
 .coordinate-validation[data-tone="success"] {
@@ -677,7 +699,7 @@ svg text.angle-label-preview {
   background: var(--surface-muted);
   color: var(--ink);
   font-family: "Space Mono", monospace;
-  font-size: 0.76rem;
+  font-size: var(--fs-command-kbd);
   text-align: center;
 }
 
@@ -791,11 +813,11 @@ svg text.angle-label-preview {
   }
 
   .tool-select-wrap .icon {
-    font-size: 0.94rem;
+    font-size: var(--fs-tool-icon-md);
   }
 
   .tool-select {
-    font-size: 0.76rem;
+    font-size: var(--fs-tool-select-md);
     height: 26px;
   }
 
@@ -813,11 +835,11 @@ svg text.angle-label-preview {
   }
 
   .brand-wrap h1 {
-    font-size: 0.96rem;
+    font-size: var(--fs-brand-title-md);
   }
 
   .version-badge {
-    font-size: 0.66rem;
+    font-size: var(--fs-version-badge-md);
     padding: 2px 7px;
   }
 
@@ -832,7 +854,7 @@ svg text.angle-label-preview {
   }
 
   .icon-btn .icon {
-    font-size: 0.92rem;
+    font-size: var(--fs-icon-btn-md);
   }
 
   .tool-btn .icon,
@@ -841,11 +863,11 @@ svg text.angle-label-preview {
   }
 
   .tool-btn .icon {
-    font-size: 1.08rem;
+    font-size: var(--fs-tool-icon-strong-md);
   }
 
   .tool-btn .label {
-    font-size: 0.7rem;
+    font-size: var(--fs-tool-label-md);
   }
 
   .graph-panel {
@@ -855,18 +877,16 @@ svg text.angle-label-preview {
 
 @media (max-width: 640px) {
   svg text.segment-length-text {
-    font-size: 13px;
-    stroke-width: 2.4;
-    stroke-opacity: 0.7;
+    font-size: var(--fs-segment-length-sm);
   }
 
   svg text.user-text {
-    font-size: max(13px, 0.86rem);
+    font-size: var(--fs-user-text-sm);
     letter-spacing: 0.01em;
   }
 
   svg text.area-metric-text {
-    font-size: max(14px, 0.94rem);
+    font-size: var(--fs-area-metric-sm);
     font-weight: 600;
     stroke-width: 2.2;
     stroke-opacity: 0.72;
@@ -908,7 +928,7 @@ svg text.angle-label-preview {
   }
 
   .icon-btn .icon {
-    font-size: 0.88rem;
+    font-size: var(--fs-icon-btn-sm);
   }
 }
 
@@ -918,12 +938,12 @@ svg text.angle-label-preview {
   }
 
   .brand-wrap h1 {
-    font-size: 0.9rem;
+    font-size: var(--fs-brand-title-xs);
   }
 
   .version-badge {
     display: inline-flex;
-    font-size: 0.58rem;
+    font-size: var(--fs-version-badge-xs);
     padding: 2px 6px;
   }
 }

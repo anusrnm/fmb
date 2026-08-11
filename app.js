@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.6.0";
+const VERSION = "2.7.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -880,7 +880,7 @@ function setMode(mode) {
   if (mode === "select") {
     setStatus("Select mode: click to select and drag. Delete removes selected objects.");
   } else if (mode === "polygon") {
-    setStatus("Polygon mode: click to place vertices, click the first vertex to close.");
+    setStatus("Polygon mode: click to place vertices, click the first vertex or Ctrl/Cmd+click to close.");
   } else if (mode === "angle") {
     setStatus("Angle mode: click a highlighted angle to keep it as annotation.");
   } else if (mode === "midpoint") {
@@ -1454,7 +1454,7 @@ function resolvePointForDrawing(worldPoint) {
   return addPoint(worldPoint.x, worldPoint.y);
 }
 
-function handleModeAction(screen, world) {
+function handleModeAction(screen, world, event = null) {
   if (state.mode === "point") {
     const hitPoint = hitTestPoint(screen, 10);
     const edgePick = hitPoint ? null : findNearestEdge(world);
@@ -1593,6 +1593,36 @@ function handleModeAction(screen, world) {
   }
 
   if (state.mode === "polygon") {
+    if (state.polygonDraft.length >= 2 && (event?.ctrlKey || event?.metaKey)) {
+      const hitPoint = hitTestPoint(screen, 10);
+      const closingPoint = hitPoint || addPoint(world.x, world.y);
+
+      if (!state.polygonDraft.includes(closingPoint.id)) {
+        state.polygonDraft.push(closingPoint.id);
+      }
+
+      if (state.polygonDraft.length < 3) {
+        setStatus("Add one more distinct vertex before closing the polygon.", "warning");
+        render();
+        return;
+      }
+
+      const polygon = addPolygon(state.polygonDraft);
+      if (!polygon) {
+        setStatus("Could not close polygon. Ensure at least three distinct vertices.", "warning");
+        render();
+        return;
+      }
+
+      const area = polygonArea(state.polygonDraft);
+      state.polygonDraft = [];
+      state.polygonDraftCreatedPointIds.clear();
+      pushHistory("Create polygon");
+      render();
+      setStatus(`Polygon closed. Area: ${round2(area)} sq units.`, "success");
+      return;
+    }
+
     const hitPoint = hitTestPoint(screen, 10);
 
     if (state.polygonDraft.length >= 3 && hitPoint && hitPoint.id === state.polygonDraft[0]) {
@@ -1695,7 +1725,10 @@ function handlePointerDown(event) {
   const world = screenToWorld(screen);
   state.mouseDownScreen = screen;
 
-  if (event.button === 1 || (event.button === 0 && event.shiftKey && state.mode === "select")) {
+  if (
+    event.button === 1 ||
+    (event.button === 0 && event.shiftKey && (state.mode === "select" || state.mode === "polygon"))
+  ) {
     state.drag = {
       type: "pan",
       startScreen: screen,
@@ -1706,8 +1739,89 @@ function handlePointerDown(event) {
     return;
   }
 
+  if (state.mode === "polygon") {
+    const target = resolvePointerTarget(screen);
+    const hitPoint = target?.kind === "point" ? target.item : null;
+    const hitText = target?.kind === "text" ? target.item : null;
+    const hitPolygonLabel = target?.kind === "polygon-label" ? target.item : null;
+    const hitPolygon = target?.kind === "polygon" ? target.item : null;
+
+    // Keep existing close behavior: clicking the first draft vertex closes polygon.
+    const closesDraft =
+      state.polygonDraft.length >= 3 &&
+      hitPoint &&
+      hitPoint.id === state.polygonDraft[0];
+
+    if (!closesDraft && hitPoint) {
+      clearSelection();
+      state.selection.points.add(hitPoint.id);
+      const startPositions = new Map();
+      startPositions.set(hitPoint.id, { x: hitPoint.x, y: hitPoint.y });
+      state.drag = {
+        type: "move-points",
+        movedIds: [hitPoint.id],
+        anchorWorld: world,
+        startPositions,
+      };
+      render();
+      setStatus("Dragging vertex...");
+      return;
+    }
+
+    if (hitText) {
+      clearSelection();
+      state.selection.texts.add(hitText.id);
+      state.drag = {
+        type: "move-text",
+        textId: hitText.id,
+        anchorWorld: world,
+        start: { x: hitText.x, y: hitText.y },
+      };
+      render();
+      setStatus("Dragging text...");
+      return;
+    }
+
+    if (hitPolygonLabel) {
+      state.drag = {
+        type: "move-polygon-label",
+        polygonId: hitPolygonLabel.id,
+        anchorWorld: world,
+        startOffset: { ...(hitPolygonLabel.labelOffset ?? { x: 0, y: 0 }) },
+      };
+      render();
+      setStatus("Dragging polygon label...");
+      return;
+    }
+
+    if (hitPolygon) {
+      const movedIds = [...new Set(hitPolygon.pointIds)];
+      const startPositions = new Map();
+      for (const pointId of movedIds) {
+        const point = getPointById(pointId);
+        if (point) {
+          startPositions.set(pointId, { x: point.x, y: point.y });
+        }
+      }
+
+      if (startPositions.size > 0) {
+        clearSelection();
+        state.selection.polygons.add(hitPolygon.id);
+        state.drag = {
+          type: "move-polygon",
+          movedIds,
+          anchorWorld: world,
+          startPositions,
+        };
+        render();
+        setStatus("Dragging shape...");
+        return;
+      }
+    }
+  }
+
   if (state.mode !== "select") {
-    handleModeAction(screen, world);
+    handleModeAction(screen, world, event);
     return;
   }
 
@@ -1855,6 +1969,22 @@ function handlePointerMove(event) {
     return;
   }
 
+  if (state.drag?.type === "move-polygon") {
+    const dxWorld = world.x - state.drag.anchorWorld.x;
+    const dyWorld = world.y - state.drag.anchorWorld.y;
+    for (const pointId of state.drag.movedIds) {
+      const point = getPointById(pointId);
+      const start = state.drag.startPositions.get(pointId);
+      if (!point || !start) {
+        continue;
+      }
+      point.x = round2(start.x + dxWorld);
+      point.y = round2(start.y + dyWorld);
+    }
+    render();
+    return;
+  }
+
   if (state.drag?.type === "move-text") {
     const text = getTextById(state.drag.textId);
     if (text) {
@@ -1958,7 +2088,12 @@ function handlePointerUp(event) {
     return;
   }
 
-  if (state.drag?.type === "move-points" || state.drag?.type === "move-text" || state.drag?.type === "move-polygon-label") {
+  if (
+    state.drag?.type === "move-points" ||
+    state.drag?.type === "move-polygon" ||
+    state.drag?.type === "move-text" ||
+    state.drag?.type === "move-polygon-label"
+  ) {
     pushHistory("Move selection");
   }
 
