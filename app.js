@@ -18,7 +18,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.12.0";
+const VERSION = "2.13.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -840,12 +840,57 @@ function findNearestEdge(worldPoint, maxDistancePx = 12) {
   return nearestDistance <= maxDistancePx ? nearest : null;
 }
 
+function findNearestPolygonEdge(worldPoint, polygonId, maxDistancePx = 12) {
+  let nearest = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const edge of getAllEdges()) {
+    if (edge.edgeType !== "polygon-edge" || edge.polygonId !== polygonId) {
+      continue;
+    }
+    const a = getPointById(edge.aId);
+    const b = getPointById(edge.bId);
+    if (!a || !b) {
+      continue;
+    }
+
+    const projection = projectPointToSegment(worldPoint, a, b);
+    const projectionScreen = worldToScreen(projection.point);
+    const targetScreen = worldToScreen(worldPoint);
+    const distance = distanceScreen(projectionScreen, targetScreen);
+
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = {
+        edge,
+        projection,
+      };
+    }
+  }
+
+  return nearestDistance <= maxDistancePx ? nearest : null;
+}
+
 function polygonArea(pointIds) {
   return core.polygonArea(state, pointIds);
 }
 
 function removePoint(pointId) {
   return core.removePoint(state, pointId);
+}
+
+function syncNextIdWithState() {
+  const ids = [
+    ...state.points,
+    ...state.segments,
+    ...state.polygons,
+    ...state.texts,
+    ...state.angleAnnotations,
+    ...state.constraints,
+  ]
+    .map((item) => item.id)
+    .filter((id) => Number.isInteger(id) && id > 0);
+  state.nextId = Math.max(1, ...ids, 0) + 1;
 }
 
 function cancelPolygonDraft() {
@@ -888,6 +933,7 @@ function removeSelectedObjects() {
 
   clearSelection();
   normalizeGeometry();
+  syncNextIdWithState();
   pushHistory("Delete selection");
   render();
   setStatus("Selection deleted.", "success");
@@ -1339,6 +1385,47 @@ function drawGrid(parentGroup) {
   parentGroup.append(layer.cloneNode(true));
 }
 
+function getSelectedPolygonForVertexEditing() {
+  if (state.mode !== "select" && state.mode !== "polygon") {
+    return null;
+  }
+  if (state.selection.polygons.size !== 1) {
+    return null;
+  }
+  const polygonId = [...state.selection.polygons][0];
+  const polygon = getPolygonById(polygonId);
+  if (!polygon || polygon.pointIds.length < 3) {
+    return null;
+  }
+  return polygon;
+}
+
+function updateVertexEditHint(polygon, canInsertVertex, canRemoveVertex) {
+  if (!ui.vertexEditHint) {
+    return;
+  }
+  if (!polygon) {
+    ui.vertexEditHint.hidden = true;
+    ui.vertexEditHint.textContent = "";
+    return;
+  }
+
+  ui.vertexEditHint.hidden = false;
+  if (canInsertVertex && canRemoveVertex) {
+    ui.vertexEditHint.textContent = "Vertex edit: Shift+I inserts on hovered edge. X removes selected vertex.";
+    return;
+  }
+  if (canInsertVertex) {
+    ui.vertexEditHint.textContent = "Vertex edit: Shift+I inserts on hovered edge. Select one vertex and press X to remove.";
+    return;
+  }
+  if (canRemoveVertex) {
+    ui.vertexEditHint.textContent = "Vertex edit: X removes selected vertex. Hover an edge and press Shift+I to insert.";
+    return;
+  }
+  ui.vertexEditHint.textContent = "Vertex edit active: hover a polygon edge and press Shift+I, or select one vertex and press X.";
+}
+
 function renderNow() {
   perfCounters.renderNowCalls += 1;
   updateConstraintsPanel();
@@ -1359,6 +1446,26 @@ function renderNow() {
 
   const angleCandidates = getAngleCandidates();
   const pinnedAngleKeys = new Set(state.angleAnnotations.map((item) => angleCandidateKey(item)));
+  const selectedVertexPolygon = getSelectedPolygonForVertexEditing();
+  const selectedVertexPointIds = selectedVertexPolygon ? new Set(selectedVertexPolygon.pointIds) : null;
+  let vertexInsertEdgePick = null;
+  if (selectedVertexPolygon && state.hoverWorld) {
+    const edgePick = findNearestEdge(state.hoverWorld, 14);
+    if (
+      edgePick &&
+      edgePick.edge.edgeType === "polygon-edge" &&
+      edgePick.edge.polygonId === selectedVertexPolygon.id
+    ) {
+      vertexInsertEdgePick = edgePick;
+    }
+  }
+  const canRemoveVertex = Boolean(
+    selectedVertexPolygon &&
+      state.selection.points.size === 1 &&
+      selectedVertexPolygon.pointIds.includes([...state.selection.points][0]) &&
+      selectedVertexPolygon.pointIds.length > 3
+  );
+  updateVertexEditHint(selectedVertexPolygon, Boolean(vertexInsertEdgePick), canRemoveVertex);
 
   for (const polygon of state.polygons) {
     const points = polygon.pointIds.map((pointId) => getPointById(pointId)).filter(Boolean);
@@ -1538,6 +1645,16 @@ function renderNow() {
         })
       );
     }
+    if (selectedVertexPointIds?.has(point.id)) {
+      pointsGroup.append(
+        makeCircle(screenPoint.x, screenPoint.y, 8.4, {
+          class:
+            hovered
+              ? "vertex-handle vertex-handle-hovered"
+              : "vertex-handle",
+        })
+      );
+    }
     if (state.display.showLabels) {
       labelsGroup.append(
         makeText(screenPoint.x + 8, screenPoint.y - 8, `${point.label} (${round2(point.x)}, ${round2(point.y)})`, {
@@ -1603,6 +1720,34 @@ function renderNow() {
         "stroke-width": 2,
       })
     );
+  }
+
+  if (vertexInsertEdgePick) {
+    const a = getPointById(vertexInsertEdgePick.edge.aId);
+    const b = getPointById(vertexInsertEdgePick.edge.bId);
+    if (a && b) {
+      const aScreen = worldToScreen(a);
+      const bScreen = worldToScreen(b);
+      const projectionScreen = worldToScreen(vertexInsertEdgePick.projection.point);
+      overlaysGroup.append(
+        makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
+          stroke: "#0f766e",
+          "stroke-width": 4,
+          "stroke-opacity": 0.28,
+          "stroke-linecap": "round",
+        })
+      );
+      overlaysGroup.append(
+        makeCircle(projectionScreen.x, projectionScreen.y, 7.2, {
+          class: "vertex-insert-affordance",
+        })
+      );
+      labelsGroup.append(
+        makeText(projectionScreen.x, projectionScreen.y + 3.2, "+", {
+          class: "vertex-insert-affordance-text",
+        })
+      );
+    }
   }
 
   if (state.display.showAngles) {
@@ -2221,6 +2366,33 @@ function handlePointerDown(event) {
       toggleSelection("polygons", hitPolygon.id);
     } else {
       selectSingle("polygons", hitPolygon.id);
+      const movedIds = [...new Set(hitPolygon.pointIds)];
+      const startPositions = new Map();
+      for (const pointId of movedIds) {
+        const point = getPointById(pointId);
+        if (point) {
+          startPositions.set(pointId, { x: point.x, y: point.y });
+        }
+      }
+
+      if (startPositions.size > 0) {
+        const hasUnlockedPoint = movedIds.some((pointId) => !core.isPointLocked(state, pointId));
+        if (!hasUnlockedPoint) {
+          state.drag = null;
+          render();
+          setStatus("Selection updated. Selected shape vertices are locked; press L to unlock.", "warning");
+          return;
+        }
+        state.drag = {
+          type: "move-polygon",
+          movedIds,
+          anchorWorld: world,
+          startPositions,
+        };
+        render();
+        setStatus("Dragging shape...");
+        return;
+      }
     }
   }
 
@@ -2813,7 +2985,7 @@ function clearAllConstraints() {
 }
 
 function updateConstraintsPanel() {
-  if (!ui.constraintsSummary || !ui.constraintsList || !ui.lockSelectedBtn || !ui.unlockSelectedBtn || !ui.clearConstraintsBtn) {
+  if (!ui.constraintsSummary || !ui.lockSelectedBtn || !ui.unlockSelectedBtn || !ui.clearConstraintsBtn) {
     return;
   }
 
@@ -2827,39 +2999,6 @@ function updateConstraintsPanel() {
   ui.constraintsSummary.textContent =
     `${lockedConstraints.length} lock constraint${lockedConstraints.length === 1 ? "" : "s"}` +
     `, ${selectedPointIds.length} point${selectedPointIds.length === 1 ? "" : "s"} selected`;
-
-  ui.constraintsList.replaceChildren();
-  if (lockedConstraints.length === 0) {
-    const item = document.createElement("li");
-    const text = document.createElement("span");
-    text.className = "constraints-list-text";
-    text.textContent = "No active constraints.";
-    item.append(text);
-    ui.constraintsList.append(item);
-    return;
-  }
-
-  for (const constraint of lockedConstraints) {
-    const point = getPointById(constraint.pointId);
-    if (!point) {
-      continue;
-    }
-    const item = document.createElement("li");
-    const text = document.createElement("span");
-    const removeBtn = document.createElement("button");
-
-    text.className = "constraints-list-text";
-    text.textContent = `Lock ${point.label} (${round2(point.x)}, ${round2(point.y)})`;
-
-    removeBtn.type = "button";
-    removeBtn.className = "constraints-remove-btn";
-    removeBtn.textContent = "Unlock";
-    removeBtn.dataset.pointId = String(point.id);
-    removeBtn.title = `Unlock ${point.label}`;
-
-    item.append(text, removeBtn);
-    ui.constraintsList.append(item);
-  }
 }
 
 function hideContextMenu() {
@@ -3012,7 +3151,10 @@ function handleKeyDown(event) {
   }
 
   if (event.key.toLowerCase() === "i" && !event.ctrlKey && !event.metaKey && state.hoverWorld) {
-    const edgePick = findNearestEdge(state.hoverWorld);
+    const selectedPolygon = event.shiftKey ? getSelectedPolygonForVertexEditing() : null;
+    const edgePick = selectedPolygon
+      ? findNearestPolygonEdge(state.hoverWorld, selectedPolygon.id)
+      : findNearestEdge(state.hoverWorld);
     if (!edgePick) {
       setStatus("Move the pointer closer to an edge before inserting a point.", "warning");
       return;
@@ -3298,25 +3440,6 @@ function wireEvents() {
     } else {
       updateConstraintsPanel();
     }
-  });
-  addTrackedEvent(ui.constraintsList, "click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLButtonElement)) {
-      return;
-    }
-    const pointId = Number(target.dataset.pointId);
-    if (!Number.isInteger(pointId)) {
-      return;
-    }
-    if (!core.removePointLockConstraint(state, pointId)) {
-      setStatus("That constraint was already removed.", "warning");
-      updateConstraintsPanel();
-      return;
-    }
-    const point = getPointById(pointId);
-    pushHistory("Remove constraint");
-    render();
-    setStatus(`Unlocked ${point?.label || "point"}.`, "success");
   });
   addTrackedEvent(ui.snapToggle, "change", () => {
     state.snapToPoints = ui.snapToggle.checked;

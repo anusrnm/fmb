@@ -111,6 +111,7 @@
         <section class="graph-panel" aria-label="Graph editor">
           <svg id="graph" viewBox="0 0 1600 900" role="img" aria-label="Interactive graph"></svg>
           <input id="inline-text-editor" class="inline-text-editor" type="text" maxlength="140" hidden aria-label="Inline text editor" />
+          <div id="vertex-edit-hint" class="vertex-edit-hint" hidden></div>
           <div id="status" class="status-pill" role="status" aria-live="polite"></div>
         </section>
       </main>
@@ -205,7 +206,6 @@
           <button id="unlock-selected-btn" type="button">Unlock selected</button>
           <button id="clear-constraints-btn" type="button">Clear all</button>
         </div>
-        <ul id="constraints-list" class="constraints-list" aria-label="Active constraints"></ul>
       </fieldset>
       <div class="settings-actions">
         <button id="clear-autosave-btn" type="button">Clear autosave</button>

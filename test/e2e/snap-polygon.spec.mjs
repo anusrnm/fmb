@@ -101,3 +101,24 @@ test("drags an existing shape directly in polygon mode", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Dragging shape");
   await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toHaveCount(0);
 });
+
+test("drags an existing shape directly in select mode", async ({ page }) => {
+  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
+  await page.getByLabel("Select tools").selectOption("select");
+
+  const graphBox = await page.locator("#graph").boundingBox();
+  if (!graphBox) {
+    throw new Error("Expected graph bounds.");
+  }
+
+  // Click within polygon body away from labels/points so polygon drag path is used.
+  const startX = graphBox.x + graphBox.width * 0.5 + 12;
+  const startY = graphBox.y + graphBox.height * 0.5 + 6;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 40, startY + 20);
+  await page.mouse.up();
+
+  await expect(page.getByRole("status")).toContainText("Dragging shape");
+  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toHaveCount(0);
+});

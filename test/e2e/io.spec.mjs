@@ -133,6 +133,44 @@ test("repairs stale imported next IDs before creating new objects", async ({ pag
   expect(exported.data.nextId).toBeGreaterThan(Math.max(...ids));
 });
 
+test("reuses the most recent point id after deleting that point", async ({ page }) => {
+  const exportState = async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTitle("Export JSON").click(),
+    ]);
+    const filePath = await download.path();
+    if (!filePath) {
+      throw new Error("Expected exported JSON download path.");
+    }
+    const exported = JSON.parse(await readFile(filePath, "utf8"));
+    return exported.data;
+  };
+
+  const initial = await exportState();
+  const initialPointIds = initial.points.map((point) => point.id);
+  const initialMaxPointId = Math.max(...initialPointIds);
+
+  await page.getByLabel("Point tools").selectOption("point");
+  const initialPointCount = initial.points.length;
+  await clickGraph(page, 980, 220);
+
+  const afterFirstCreate = await exportState();
+  expect(afterFirstCreate.points.length).toBe(initialPointCount + 1);
+  const createdPointId = Math.max(...afterFirstCreate.points.map((point) => point.id));
+  expect(createdPointId).toBeGreaterThan(initialMaxPointId);
+
+  await clickGraph(page, 980, 220);
+  await page.keyboard.press("Delete");
+  await expect(page.getByRole("status")).toContainText("Selection deleted");
+
+  await clickGraph(page, 1020, 220);
+  const afterSecondCreate = await exportState();
+  expect(afterSecondCreate.points.length).toBe(initialPointCount + 1);
+  const recreatedPointId = Math.max(...afterSecondCreate.points.map((point) => point.id));
+  expect(recreatedPointId).toBe(createdPointId);
+});
+
 test("restores autosaved geometry edits after reload", async ({ page }) => {
   await clickGraph(page, 373, 434);
   await page.keyboard.press("ArrowRight");
@@ -142,4 +180,20 @@ test("restores autosaved geometry edits after reload", async ({ page }) => {
 
   await expect(page.getByRole("status")).toContainText("Recovered autosaved draft");
   await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+});
+
+test("restores active constraints from autosave after reload", async ({ page }) => {
+  await clickGraph(page, 373, 434);
+  await page.keyboard.press("l");
+  await expect(page.getByRole("status")).toContainText("Locked 1 point");
+
+  await page.reload();
+  await expect(page.getByRole("status")).toContainText("Recovered autosaved draft");
+
+  await clickGraph(page, 373, 434);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("status")).toContainText("Selected points are locked");
+
+  await page.getByTitle("Settings").click();
+  await expect(page.locator("#constraints-summary")).toContainText("1 lock constraint");
 });

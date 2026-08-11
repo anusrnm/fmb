@@ -412,6 +412,32 @@ svg text.point-label-selected {
   font-weight: 700;
 }
 
+svg .vertex-handle {
+  fill: rgba(255, 255, 255, 0.82);
+  stroke: #0f766e;
+  stroke-width: 1.5;
+}
+
+svg .vertex-handle-hovered {
+  stroke: #0891b2;
+  stroke-width: 2;
+}
+
+svg .vertex-insert-affordance {
+  fill: rgba(14, 165, 163, 0.2);
+  stroke: #0f766e;
+  stroke-width: 1.6;
+}
+
+svg text.vertex-insert-affordance-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-anchor: middle;
+  fill: #0f766e;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 svg text.area-metric-text {
   font-family: var(--font-mono);
   text-anchor: middle;
@@ -482,6 +508,27 @@ svg text.angle-label-preview {
   font-size: var(--fs-status-pill);
   line-height: 1.25;
   backdrop-filter: blur(8px);
+}
+
+.vertex-edit-hint {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  max-width: min(520px, calc(100% - 28px));
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(14, 165, 163, 0.3);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  backdrop-filter: blur(8px);
+}
+
+:root[data-theme="dark"] .vertex-edit-hint {
+  background: rgba(18, 29, 39, 0.92);
+  color: #b8c9d6;
+  border-color: rgba(76, 212, 202, 0.35);
 }
 
 .status-pill[data-tone="success"] {

@@ -51,7 +51,6 @@ export function queryUi(doc) {
     lockSelectedBtn: doc.getElementById("lock-selected-btn"),
     unlockSelectedBtn: doc.getElementById("unlock-selected-btn"),
     clearConstraintsBtn: doc.getElementById("clear-constraints-btn"),
-    constraintsList: doc.getElementById("constraints-list"),
     contextMenu: doc.getElementById("context-menu"),
     viewPointsBtn: doc.getElementById("view-points-btn"),
     joinPointsBtn: doc.getElementById("join-points-btn"),
@@ -64,5 +63,6 @@ export function queryUi(doc) {
     copyPointsBtn: doc.getElementById("copy-points-btn"),
     drawPointsBtn: doc.getElementById("draw-points-btn"),
     inlineTextEditor: doc.getElementById("inline-text-editor"),
+    vertexEditHint: doc.getElementById("vertex-edit-hint"),
   };
 }
