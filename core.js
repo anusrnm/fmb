@@ -19,6 +19,8 @@ export function createState() {
     texts: [],
     angleAnnotations: [],
     constraints: [],
+    // { src, x, y, width, height, opacity } with x/y as the world-space top-left corner.
+    backgroundImage: null,
     nextId: 1,
     scale: 32,
     panX: 0,
@@ -53,6 +55,7 @@ export function createState() {
       showMajorGrid: true,
       showMinorGrid: true,
       showGridValues: true,
+      showBackgroundImage: true,
     },
     pointIndex: new Map(),
   };
@@ -407,5 +410,6 @@ export function serializeCoreState(state, version) {
     texts: state.texts,
     angleAnnotations: state.angleAnnotations,
     constraints: state.constraints,
+    backgroundImage: state.backgroundImage,
   };
 }

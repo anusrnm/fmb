@@ -37,6 +37,7 @@ deno run --allow-env --allow-net --allow-read main.ts
 - Segment lengths are shown (toggleable in settings).
 - Polygon details include area in multiple units and perimeter, with density-aware label display.
 - Settings panel includes persistent show/hide controls for grid, values, points, labels, text, segments, shapes, and angle annotations.
+- Background image overlay: load a raster image (PNG/JPEG/GIF/WEBP/BMP), adjust opacity, fit it to the current view, or align it with X/Y/Width fields. The image is saved with the diagram (JSON, SVG, autosave) and participates in undo/redo.
 - Import/Export supports JSON and SVG (with embedded geometry metadata for SVG round-trip).
 - Mobile toolbar toggle with centered tool controls.
 - Theme toggle is persisted locally.

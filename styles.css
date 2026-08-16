@@ -635,6 +635,35 @@ svg text.angle-label-preview {
   grid-column: 1 / -1;
 }
 
+.background-image-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.background-image-actions button:first-child {
+  grid-column: 1 / -1;
+}
+
+.background-image-placement {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.background-image-placement label {
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-toggle-row);
+  color: var(--ink-muted);
+}
+
+.background-image-placement input {
+  width: 100%;
+  min-width: 0;
+}
+
 .constraints-list {
   list-style: none;
   margin: 0;
@@ -886,6 +915,13 @@ svg text.angle-label-preview {
     height: 100%;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+
+  svg text {
+    font-family: inherit;
+    font-style: inherit;
+    font-weight: inherit;
+    letter-spacing: inherit;
   }
 }
 

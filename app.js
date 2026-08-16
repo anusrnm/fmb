@@ -19,13 +19,15 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.15.0";
+const VERSION = "2.16.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
 const AUTOSAVE_STORAGE_KEY = "fmb-autosave-draft";
 const MIN_SCALE = 0.01;
 const MAX_SCALE = 320;
+const BACKGROUND_IMAGE_SRC_PATTERN = /^data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
+const BACKGROUND_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 
 const MODES = [
   "select",
@@ -213,6 +215,7 @@ function syncDisplayControlsToState() {
   ui.showMajorGridToggle.checked = state.display.showMajorGrid;
   ui.showMinorGridToggle.checked = state.display.showMinorGrid;
   ui.showGridValuesToggle.checked = state.display.showGridValues;
+  syncBackgroundImageControls();
 }
 
 function updateDisplaySetting(key, value) {
@@ -428,6 +431,8 @@ function applyCoreState(serialized) {
   state.texts = texts;
   state.angleAnnotations = angleAnnotations;
   state.constraints = constraints;
+  state.backgroundImage = sanitizeBackgroundImage(serialized.backgroundImage);
+  syncBackgroundImageControls();
 
   normalizeGeometry();
   clearSelection();
@@ -1391,6 +1396,163 @@ function drawGrid(parentGroup) {
   parentGroup.append(layer.cloneNode(true));
 }
 
+// Only inline base64 raster data URLs are accepted so imported files cannot pull in
+// remote or script-bearing resources through the background layer.
+function sanitizeBackgroundImage(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const src = String(value.src || "");
+  if (!BACKGROUND_IMAGE_SRC_PATTERN.test(src)) {
+    return null;
+  }
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    return null;
+  }
+  const opacity = Number(value.opacity);
+  return {
+    src,
+    x: round3(x),
+    y: round3(y),
+    width: round3(width),
+    height: round3(height),
+    opacity: Number.isFinite(opacity) ? clamp(opacity, 0.05, 1) : 0.6,
+  };
+}
+
+function computeBackgroundImagePlacement(aspectRatio) {
+  const rect = getRect();
+  const safeAspect = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
+  const maxWidth = (rect.width / state.scale) * 0.9;
+  const maxHeight = (rect.height / state.scale) * 0.9;
+  let width = maxWidth;
+  let height = width / safeAspect;
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * safeAspect;
+  }
+  const center = screenToWorld({ x: rect.width * 0.5, y: rect.height * 0.5 });
+  return {
+    x: round3(center.x - width * 0.5),
+    y: round3(center.y + height * 0.5),
+    width: round3(width),
+    height: round3(height),
+  };
+}
+
+function syncBackgroundImageControls() {
+  const image = state.backgroundImage;
+  const hasImage = Boolean(image);
+  if (ui.showBackgroundImageToggle) {
+    ui.showBackgroundImageToggle.checked = state.display.showBackgroundImage;
+    ui.showBackgroundImageToggle.disabled = !hasImage;
+  }
+  for (const control of [ui.backgroundImageFitBtn, ui.backgroundImageRemoveBtn, ui.backgroundImageOpacity]) {
+    if (control) {
+      control.disabled = !hasImage;
+    }
+  }
+  if (ui.backgroundImageOpacity && hasImage) {
+    ui.backgroundImageOpacity.value = String(Math.round(image.opacity * 100));
+  }
+  const placementInputs = [
+    [ui.backgroundImageX, image?.x],
+    [ui.backgroundImageY, image?.y],
+    [ui.backgroundImageWidth, image?.width],
+  ];
+  for (const [input, value] of placementInputs) {
+    if (!input) {
+      continue;
+    }
+    input.disabled = !hasImage;
+    input.value = hasImage ? String(value) : "";
+  }
+}
+
+function loadBackgroundImageFile(file) {
+  if (!file) {
+    return;
+  }
+  if (file.size > BACKGROUND_IMAGE_MAX_BYTES) {
+    setStatus("Background image is too large (8 MB maximum).", "error");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.addEventListener("error", () => setStatus("Background image could not be read.", "error"));
+  reader.addEventListener("load", () => {
+    const src = String(reader.result || "");
+    if (!BACKGROUND_IMAGE_SRC_PATTERN.test(src)) {
+      setStatus("Unsupported image type. Use PNG, JPEG, GIF, WEBP, or BMP.", "error");
+      return;
+    }
+
+    const probe = new Image();
+    probe.addEventListener("error", () => setStatus("Background image could not be decoded.", "error"));
+    probe.addEventListener("load", () => {
+      const placement = computeBackgroundImagePlacement(probe.naturalWidth / probe.naturalHeight);
+      state.backgroundImage = {
+        src,
+        ...placement,
+        opacity: state.backgroundImage?.opacity ?? 0.6,
+      };
+      state.display.showBackgroundImage = true;
+      saveDisplaySettings();
+      syncBackgroundImageControls();
+      pushHistory("Add background image");
+      render();
+      setStatus("Background image added. Use Fit to view or the X/Y/Width fields to align it.", "success");
+    });
+    probe.src = src;
+  });
+  reader.readAsDataURL(file);
+}
+
+function updateBackgroundImagePlacement(patch, action) {
+  if (!state.backgroundImage) {
+    return;
+  }
+  state.backgroundImage = { ...state.backgroundImage, ...patch };
+  syncBackgroundImageControls();
+  pushHistory(action);
+  render();
+}
+
+function removeBackgroundImage() {
+  if (!state.backgroundImage) {
+    return;
+  }
+  state.backgroundImage = null;
+  syncBackgroundImageControls();
+  pushHistory("Remove background image");
+  render();
+  setStatus("Background image removed.");
+}
+
+function drawBackgroundImage(parentGroup) {
+  const image = state.backgroundImage;
+  if (!image || !state.display.showBackgroundImage) {
+    return;
+  }
+  const topLeft = worldToScreen({ x: image.x, y: image.y });
+  const element = document.createElementNS(SVG_NS, "image");
+  element.setAttribute("href", image.src);
+  element.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", image.src);
+  element.setAttribute("x", String(topLeft.x));
+  element.setAttribute("y", String(topLeft.y));
+  element.setAttribute("width", String(image.width * state.scale));
+  element.setAttribute("height", String(image.height * state.scale));
+  element.setAttribute("opacity", String(image.opacity));
+  element.setAttribute("preserveAspectRatio", "none");
+  element.setAttribute("pointer-events", "none");
+  element.setAttribute("class", "background-image-layer");
+  parentGroup.append(element);
+}
+
 function getSelectedPolygonForVertexEditing() {
   if (state.mode !== "select" && state.mode !== "polygon") {
     return null;
@@ -1448,6 +1610,7 @@ function renderNow() {
   const overlaysGroup = document.createElementNS(SVG_NS, "g");
   const metricGroup = document.createElementNS(SVG_NS, "g");
 
+  drawBackgroundImage(root);
   drawGrid(root);
 
   const angleCandidates = getAngleCandidates();
@@ -3800,6 +3963,66 @@ function wireEvents() {
   addTrackedEvent(ui.showMajorGridToggle, "change", (event) => updateDisplaySetting("showMajorGrid", event.target.checked));
   addTrackedEvent(ui.showMinorGridToggle, "change", (event) => updateDisplaySetting("showMinorGrid", event.target.checked));
   addTrackedEvent(ui.showGridValuesToggle, "change", (event) => updateDisplaySetting("showGridValues", event.target.checked));
+
+  addTrackedEvent(ui.showBackgroundImageToggle, "change", (event) =>
+    updateDisplaySetting("showBackgroundImage", event.target.checked)
+  );
+  addTrackedEvent(ui.backgroundImageChooseBtn, "click", () => ui.backgroundImageFile.click());
+  addTrackedEvent(ui.backgroundImageFile, "change", (event) => {
+    loadBackgroundImageFile(event.target.files?.[0]);
+    event.target.value = "";
+  });
+  addTrackedEvent(ui.backgroundImageRemoveBtn, "click", removeBackgroundImage);
+  addTrackedEvent(ui.backgroundImageFitBtn, "click", () => {
+    if (!state.backgroundImage) {
+      return;
+    }
+    const placement = computeBackgroundImagePlacement(
+      state.backgroundImage.width / state.backgroundImage.height
+    );
+    updateBackgroundImagePlacement(placement, "Fit background image");
+    setStatus("Background image fitted to the current view.");
+  });
+  addTrackedEvent(ui.backgroundImageOpacity, "input", (event) => {
+    if (!state.backgroundImage) {
+      return;
+    }
+    state.backgroundImage.opacity = clamp(Number(event.target.value) / 100, 0.05, 1);
+    render();
+  });
+  addTrackedEvent(ui.backgroundImageOpacity, "change", () => {
+    if (state.backgroundImage) {
+      pushHistory("Change background image opacity");
+    }
+  });
+  addTrackedEvent(ui.backgroundImageX, "change", (event) => {
+    const value = Number(event.target.value);
+    if (!state.backgroundImage || !Number.isFinite(value)) {
+      syncBackgroundImageControls();
+      return;
+    }
+    updateBackgroundImagePlacement({ x: round3(value) }, "Move background image");
+  });
+  addTrackedEvent(ui.backgroundImageY, "change", (event) => {
+    const value = Number(event.target.value);
+    if (!state.backgroundImage || !Number.isFinite(value)) {
+      syncBackgroundImageControls();
+      return;
+    }
+    updateBackgroundImagePlacement({ y: round3(value) }, "Move background image");
+  });
+  addTrackedEvent(ui.backgroundImageWidth, "change", (event) => {
+    const value = Number(event.target.value);
+    if (!state.backgroundImage || !Number.isFinite(value) || value <= 0) {
+      syncBackgroundImageControls();
+      return;
+    }
+    const aspect = state.backgroundImage.width / state.backgroundImage.height;
+    updateBackgroundImagePlacement(
+      { width: round3(value), height: round3(value / aspect) },
+      "Resize background image"
+    );
+  });
 
   addTrackedEvent(ui.graph, "pointerdown", handlePointerDown);
   addTrackedEvent(ui.graph, "pointermove", handlePointerMove);
