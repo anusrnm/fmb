@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.0";
+const VERSION = "2.16.1";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -3076,15 +3076,16 @@ function pointIsUsedOutsidePolygon(pointId, polygonId) {
 }
 
 function pointIsUsedOutsidePolygons(pointId, polygonIdSet) {
-  if (state.segments.some((segment) => segment.a === pointId || segment.b === pointId)) {
-    return true;
-  }
-
-  if (state.angleAnnotations.some((item) => item.vertexId === pointId || item.aId === pointId || item.bId === pointId)) {
-    return true;
-  }
-
   return state.polygons.some((polygon) => !polygonIdSet.has(polygon.id) && polygon.pointIds.includes(pointId));
+}
+
+function discardPolygonVertex(pointId) {
+  // Vertex belonged only to the discarded polygon(s), so drop anything anchored to it too.
+  state.segments = state.segments.filter((segment) => segment.a !== pointId && segment.b !== pointId);
+  state.angleAnnotations = state.angleAnnotations.filter(
+    (item) => item.vertexId !== pointId && item.aId !== pointId && item.bId !== pointId
+  );
+  removePoint(pointId);
 }
 
 function polygonToClippingInput(polygon) {
@@ -3404,7 +3405,7 @@ function runPolygonBooleanOperation(operation) {
 
   for (const pointId of removedPointIds) {
     if (!pointIsUsedOutsidePolygons(pointId, selectedSet)) {
-      removePoint(pointId);
+      discardPolygonVertex(pointId);
     }
   }
 

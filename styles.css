@@ -29,10 +29,9 @@
   --control-fg: #1f2a32;
   --status-bg: rgba(255, 255, 255, 0.86);
   --status-border: rgba(15, 118, 110, 0.2);
-  --segment-length-color: #556471;
-  --area-metric-color: #556471;
-  --area-metric-halo: #ffffff;
-  --point-label-color: #556471;
+  --segment-length-color: #1f2a32;
+  --area-metric-color: #3e474f;
+  --point-label-color: #1f2a32;
   --user-text-color: #1f2a32;
   --user-text-selected-color: #b45309;
   --angle-label-pinned-color: #0f766e;
@@ -103,7 +102,6 @@
   --status-border: rgba(76, 212, 202, 0.24);
   --segment-length-color: #9ab0c1;
   --area-metric-color: #9ab0c1;
-  --area-metric-halo: #0f1b26;
   --point-label-color: #9ab0c1;
   --user-text-color: #e6edf3;
   --user-text-selected-color: #f59e0b;
@@ -445,9 +443,6 @@ svg text.area-metric-text {
   fill: var(--area-metric-color);
   font-weight: 600;
   paint-order: stroke;
-  stroke: var(--area-metric-halo);
-  stroke-width: 3;
-  stroke-opacity: 0.7;
 }
 
 svg text.area-metric-title {
