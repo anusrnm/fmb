@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.1";
+const VERSION = "2.16.2";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -55,6 +55,7 @@ let historyActions = [];
 let lastAutosaveSnapshot = "";
 let contextMenuEdgePick = null;
 let contextMenuVertexPointId = null;
+let contextMenuTextId = null;
 let suppressGraphContextMenuOpen = false;
 const perfCounters = {
   renderNowCalls: 0,
@@ -2056,7 +2057,7 @@ function pointFromPolar(origin, length, angleDeg) {
   };
 }
 
-function openNumericInputDialog(message, defaultValue = "10, 0") {
+function openNumericInputDialog(message, defaultValue = "10, 0", parser = parseLengthAngleInput, errorMessage = "Enter length and angle in degrees, e.g. 10, 45.") {
   return new Promise((resolve) => {
     ui.numericInputLabel.textContent = message;
     ui.numericInputField.value = defaultValue;
@@ -2067,9 +2068,9 @@ function openNumericInputDialog(message, defaultValue = "10, 0") {
 
     function onSubmit(event) {
       event.preventDefault();
-      const parsed = parseLengthAngleInput(ui.numericInputField.value);
+      const parsed = parser(ui.numericInputField.value);
       if (!parsed) {
-        ui.numericInputError.textContent = "Enter length and angle in degrees, e.g. 10, 45.";
+        ui.numericInputError.textContent = errorMessage;
         ui.numericInputError.hidden = false;
         ui.numericInputField.focus();
         return;
@@ -3019,12 +3020,20 @@ function updateCoordinateInspector() {
     return;
   }
 
-  const canDraw = points.length >= 3;
-  ui.coordinateValidation.textContent = canDraw
-    ? `${points.length} coordinates ready.`
-    : `${points.length} coordinate${points.length === 1 ? "" : "s"}; at least 3 required.`;
-  ui.coordinateValidation.dataset.tone = canDraw ? "success" : "warning";
-  ui.drawPointsBtn.disabled = !canDraw;
+  const canDrawShape = points.length >= 3;
+  const selectedPoints = getOrderedSelectedPoints();
+  const canUpdatePointsOnly =
+    state.selection.polygons.size === 0 &&
+    selectedPoints.length > 0 &&
+    selectedPoints.length === points.length;
+  const canApply = canDrawShape || canUpdatePointsOnly;
+  ui.coordinateValidation.textContent = canApply
+    ? canDrawShape
+      ? `${points.length} coordinates ready.`
+      : `${points.length} coordinate${points.length === 1 ? "" : "s"} ready to update.`
+    : `${points.length} coordinate${points.length === 1 ? "" : "s"}; at least 3 required to draw a shape.`;
+  ui.coordinateValidation.dataset.tone = canApply ? "success" : "warning";
+  ui.drawPointsBtn.disabled = !canApply;
 
   if (points.length < 2) {
     return;
@@ -3047,7 +3056,7 @@ function updateCoordinateInspector() {
     x: padding + (point.x - minX) * scale,
     y: height - padding - (point.y - minY) * scale,
   }));
-  const preview = canDraw
+  const preview = canDrawShape
     ? makePolygon(previewPoints, { class: "coordinate-preview-shape" })
     : makePolyline(previewPoints, { class: "coordinate-preview-shape" });
   ui.coordinatePreview.append(preview);
@@ -3150,14 +3159,34 @@ function drawShapeFromCoordinateInput() {
 
   parsed = normalizeCoordinateLoop(parsed);
 
-  if (parsed.length < 3) {
-    setStatus("Enter at least three coordinate rows to draw a shape.");
+  if (parsed.length === 0) {
+    setStatus("Enter at least one coordinate row.", "warning");
     return;
   }
 
   const selectedPolygonIds = [...state.selection.polygons];
   if (selectedPolygonIds.length > 1) {
     setStatus("Select only one shape to update, or clear selection to create a new one.");
+    return;
+  }
+
+  // Editing existing point(s) directly (no polygon involved) doesn't require a full shape.
+  const selectedPoints = getOrderedSelectedPoints();
+  if (selectedPolygonIds.length === 0 && selectedPoints.length > 0 && selectedPoints.length === parsed.length) {
+    selectedPoints.forEach((point, index) => {
+      point.x = round2(parsed[index].x);
+      point.y = round2(parsed[index].y);
+    });
+    normalizeGeometry();
+    pushHistory(`Update point coordinate${selectedPoints.length === 1 ? "" : "s"}`);
+    render();
+    ui.pointsDialog.close();
+    setStatus(`Updated ${selectedPoints.length} point${selectedPoints.length === 1 ? "" : "s"}.`, "success");
+    return;
+  }
+
+  if (parsed.length < 3) {
+    setStatus("Enter at least three coordinate rows to draw a shape, or select point(s) matching the rows to update.");
     return;
   }
 
@@ -3466,6 +3495,7 @@ function updateConstraintsPanel() {
 function hideContextMenu() {
   contextMenuEdgePick = null;
   contextMenuVertexPointId = null;
+  contextMenuTextId = null;
   ui.contextMenu.hidden = true;
 }
 
@@ -4066,7 +4096,16 @@ function wireEvents() {
       !hitText &&
       !hitSegment &&
       !hitPolygon;
-    if (hitPolygon) {
+    if (hitPoint) {
+      const keepMultiSelection =
+        state.selection.points.size > 1 &&
+        state.selection.points.has(hitPoint.id);
+      if (!keepMultiSelection) {
+        clearSelection();
+        state.selection.points.add(hitPoint.id);
+      }
+      render();
+    } else if (hitPolygon) {
       const keepMultiSelection =
         state.selection.polygons.size > 1 &&
         state.selection.polygons.has(hitPolygon.id);
@@ -4078,7 +4117,9 @@ function wireEvents() {
     }
     contextMenuEdgePick = polygonEdgePick;
     contextMenuVertexPointId = removablePolygon ? hitPoint.id : null;
+    contextMenuTextId = hitText ? hitText.id : null;
     ui.joinPointsBtn.hidden = state.selection.points.size < 2;
+    ui.editTextBtn.hidden = !hitText;
     ui.insertPolygonVertexBtn.hidden = !polygonEdgePick;
     ui.removePolygonVertexBtn.hidden = !removablePolygon;
     const canRunPolygonBoolean = state.selection.polygons.size === 2;
@@ -4096,11 +4137,24 @@ function wireEvents() {
     hideContextMenu();
     if (ui.viewPointsBtn.dataset.context === "empty") {
       showPointListDialog("0, 0\n5, 0\n4, 3\n1, 4");
-      setStatus("Enter coordinates and choose Draw Shape.");
+      setStatus("Enter coordinates and choose Update.");
       return;
     }
     showPointListDialog(pointsToCoordinateList());
   });
+  addTrackedEvent(ui.editTextBtn, "click", () => {
+    const textId = contextMenuTextId;
+    hideContextMenu();
+    const text = textId ? getTextById(textId) : null;
+    if (!text) {
+      setStatus("Selected text no longer exists.", "warning");
+      return;
+    }
+    const screen = worldToScreen(text);
+    openInlineTextEditor(screen, { textId: text.id, world: { x: text.x, y: text.y }, initialValue: text.content });
+    setStatus("Editing text. Press Enter to save.");
+  });
+
   addTrackedEvent(ui.joinPointsBtn, "click", () => {
     hideContextMenu();
     joinSelectedPoints();
@@ -4152,6 +4206,13 @@ function wireEvents() {
 
   addTrackedEvent(ui.drawPointsBtn, "click", () => {
     drawShapeFromCoordinateInput();
+  });
+
+  addTrackedEvent(ui.pointsDialog, "keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      ui.pointsDialog.close();
+    }
   });
 
   addTrackedEvent(globalThis, "pointerdown", (event) => {

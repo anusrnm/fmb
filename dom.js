@@ -62,6 +62,7 @@ export function queryUi(doc) {
     clearConstraintsBtn: doc.getElementById("clear-constraints-btn"),
     contextMenu: doc.getElementById("context-menu"),
     viewPointsBtn: doc.getElementById("view-points-btn"),
+    editTextBtn: doc.getElementById("edit-text-btn"),
     joinPointsBtn: doc.getElementById("join-points-btn"),
     insertPolygonVertexBtn: doc.getElementById("insert-polygon-vertex-btn"),
     removePolygonVertexBtn: doc.getElementById("remove-polygon-vertex-btn"),

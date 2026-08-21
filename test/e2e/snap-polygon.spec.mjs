@@ -82,7 +82,7 @@ test("closes polygon from two vertices with Ctrl click and includes final click 
 });
 
 test("drags an existing shape directly in polygon mode", async ({ page }) => {
-  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-8, -4)" })).toBeVisible();
   await page.getByTitle("Polygon").click();
 
   const graphBox = await page.locator("#graph").boundingBox();
@@ -99,11 +99,11 @@ test("drags an existing shape directly in polygon mode", async ({ page }) => {
   await page.mouse.up();
 
   await expect(page.getByRole("status")).toContainText("Dragging shape");
-  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toHaveCount(0);
+  await expect(page.locator("#graph text", { hasText: "P1 (-8, -4)" })).toHaveCount(0);
 });
 
 test("drags an existing shape directly in select mode", async ({ page }) => {
-  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-8, -4)" })).toBeVisible();
   await page.getByLabel("Select tools").selectOption("select");
 
   const graphBox = await page.locator("#graph").boundingBox();
@@ -120,5 +120,5 @@ test("drags an existing shape directly in select mode", async ({ page }) => {
   await page.mouse.up();
 
   await expect(page.getByRole("status")).toContainText("Dragging shape");
-  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toHaveCount(0);
+  await expect(page.locator("#graph text", { hasText: "P1 (-8, -4)" })).toHaveCount(0);
 });

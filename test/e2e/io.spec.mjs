@@ -10,7 +10,7 @@ test("draws a polygon from the coordinate dialog and supports undo and redo", as
   await page.locator("#graph").click({ button: "right", position: { x: 760, y: 500 } });
   await page.getByRole("button", { name: "Coordinates" }).click();
   await page.locator("#points-output").fill("A, 0, 0\nB, 5, 0\nC, 4, 3\nD, 1, 4");
-  await page.getByRole("button", { name: "Draw Shape" }).click();
+  await page.getByRole("button", { name: "Update" }).click();
 
   await expect(page.getByRole("status")).toContainText("Shape created from 4 coordinates");
   await expect(page.locator("#graph polygon")).toHaveCount(2);
@@ -174,12 +174,12 @@ test("reuses the most recent point id after deleting that point", async ({ page 
 test("restores autosaved geometry edits after reload", async ({ page }) => {
   await clickGraph(page, 373, 434);
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-7.8, -4)" })).toBeVisible();
 
   await page.reload();
 
   await expect(page.getByRole("status")).toContainText("Recovered autosaved draft");
-  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-7.8, -4)" })).toBeVisible();
 });
 
 test("restores active constraints from autosave after reload", async ({ page }) => {

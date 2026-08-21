@@ -26,10 +26,11 @@ test("creates a segment from numeric input after first click", async ({ page }) 
   await page.getByLabel("Line tools").selectOption("segment");
   await clickGraph(page, 300, 500);
 
-  await page.evaluate(() => {
-    globalThis.prompt = () => "10, 0";
-  });
   await page.keyboard.press("Enter");
+  const dialog = page.locator("#numeric-input-dialog");
+  await expect(dialog).toBeVisible();
+  await page.locator("#numeric-input-field").fill("10, 0");
+  await page.locator("#numeric-input-field").press("Enter");
 
   await expect(page.getByRole("status")).toContainText("Segment created from numeric input");
 
@@ -47,10 +48,11 @@ test("adds polygon vertex from numeric edge input", async ({ page }) => {
   await page.getByTitle("Polygon").click();
   await clickGraph(page, 120, 470);
 
-  await page.evaluate(() => {
-    globalThis.prompt = () => "5, 0";
-  });
   await page.keyboard.press("Enter");
+  const dialog = page.locator("#numeric-input-dialog");
+  await expect(dialog).toBeVisible();
+  await page.locator("#numeric-input-field").fill("5, 0");
+  await page.locator("#numeric-input-field").press("Enter");
 
   await expect(page.getByRole("status")).toContainText("Polygon drafting: 2 vertex");
 });
@@ -70,7 +72,7 @@ test("drafts a polygon by closing it at the first vertex", async ({ page }) => {
 test("selects, nudges, and deletes a point with keyboard controls", async ({ page }) => {
   await clickGraph(page, 373, 434);
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-7.8, -4)" })).toBeVisible();
   await page.keyboard.press("Delete");
 
   await expect(page.getByRole("status")).toContainText("Selection deleted");
@@ -84,17 +86,17 @@ test("locks selected points to block move until unlocked", async ({ page }) => {
 
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("status")).toContainText("Selected points are locked");
-  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-8, -4)" })).toBeVisible();
 
   await page.keyboard.press("l");
   await expect(page.getByRole("status")).toContainText("Unlocked 1 point");
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-7.8, -4)" })).toBeVisible();
 });
 
 test("ctrl/cmd deselect does not drag a point", async ({ page, browserName }) => {
   const modifier = browserName === "webkit" ? "Meta" : "Control";
-  const pointA = page.locator("#graph text", { hasText: "A (-8, -4)" });
+  const pointA = page.locator("#graph text", { hasText: "P1 (-8, -4)" });
   const pointCircle = page.locator("#graph circle").first();
 
   await expect(pointA).toBeVisible();
@@ -114,7 +116,7 @@ test("ctrl/cmd deselect does not drag a point", async ({ page, browserName }) =>
   await page.mouse.up();
   await page.keyboard.up(modifier);
 
-  await expect(page.locator("#graph text", { hasText: "A (-8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-8, -4)" })).toBeVisible();
 });
 
 test("constructs parallel and perpendicular segments from a selected base", async ({ page }) => {
@@ -162,12 +164,12 @@ test("reports duplicate segment creation instead of claiming success", async ({ 
 });
 
 test("inserts and removes a polygon vertex with vertex edit tools", async ({ page }) => {
-  const pointA = await page.locator("#graph text", { hasText: "A (-8, -4)" }).evaluate((node) => {
+  const pointA = await page.locator("#graph text", { hasText: "P1 (-8, -4)" }).evaluate((node) => {
     const x = Number(node.getAttribute("x"));
     const y = Number(node.getAttribute("y"));
     return { x: x - 8, y: y + 8 };
   });
-  const pointB = await page.locator("#graph text", { hasText: "B (6, -2)" }).evaluate((node) => {
+  const pointB = await page.locator("#graph text", { hasText: "P2 (6, -2)" }).evaluate((node) => {
     const x = Number(node.getAttribute("x"));
     const y = Number(node.getAttribute("y"));
     return { x: x - 8, y: y + 8 };
@@ -205,7 +207,7 @@ test("manages point locks from the constraints panel", async ({ page }) => {
   await expect(page.locator("#constraints-summary")).toContainText("0 lock constraints");
 
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator("#graph text", { hasText: "A (-7.8, -4)" })).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (-7.8, -4)" })).toBeVisible();
 });
 
 test("clears and unlocks constraints via panel actions", async ({ page }) => {
@@ -240,12 +242,12 @@ test("shows vertex handles, edge affordance, and inline hint for polygon editing
   await expect(page.locator("#vertex-edit-hint")).toContainText("Shift+I");
   await expect(page.locator("#vertex-edit-hint")).toContainText("X");
 
-  const pointA = await page.locator("#graph text", { hasText: "A (-8, -4)" }).evaluate((node) => {
+  const pointA = await page.locator("#graph text", { hasText: "P1 (-8, -4)" }).evaluate((node) => {
     const x = Number(node.getAttribute("x"));
     const y = Number(node.getAttribute("y"));
     return { x: x - 8, y: y + 8 };
   });
-  const pointB = await page.locator("#graph text", { hasText: "B (6, -2)" }).evaluate((node) => {
+  const pointB = await page.locator("#graph text", { hasText: "P2 (6, -2)" }).evaluate((node) => {
     const x = Number(node.getAttribute("x"));
     const y = Number(node.getAttribute("y"));
     return { x: x - 8, y: y + 8 };
@@ -303,7 +305,7 @@ test("removing a shared polygon vertex keeps the shared point in other polygons"
   await clickGraph(page, center.x, center.y);
   await page.keyboard.up("Control");
   await page.keyboard.press("x");
-  await expect(page.getByRole("status")).toContainText("Removed vertex A");
+  await expect(page.getByRole("status")).toContainText("Removed vertex at (0, 0)");
 
   const data = await exportDiagram(page);
   expect(data.points).toHaveLength(6);
