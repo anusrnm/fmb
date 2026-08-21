@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.2";
+const VERSION = "2.16.3";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -57,6 +57,7 @@ let contextMenuEdgePick = null;
 let contextMenuVertexPointId = null;
 let contextMenuTextId = null;
 let suppressGraphContextMenuOpen = false;
+let lastViewportAspect = 1;
 const perfCounters = {
   renderNowCalls: 0,
   gridCacheHits: 0,
@@ -1600,6 +1601,7 @@ function renderNow() {
   updateConstraintsPanel();
   updateZoomResetButton();
   const rect = getRect();
+  lastViewportAspect = rect.width / Math.max(rect.height, 1);
   ui.graph.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
   ui.graph.replaceChildren();
 
@@ -4247,20 +4249,15 @@ function wireEvents() {
 
   let _printStyle = null;
   addTrackedEvent(globalThis, "beforeprint", () => {
-    const rect = ui.graph.getBoundingClientRect();
-    // A4 at 96 dpi: 794 × 1122 px (portrait) or 1122 × 794 px (landscape)
-    const landscape = rect.width >= rect.height;
-    const w = landscape ? 1122 : 794;
-    const h = landscape ? 794 : 1122;
-    ui.graph.setAttribute("width", w);
-    ui.graph.setAttribute("height", h);
+    // Screen aspect rarely matches paper, so just pick the paper orientation
+    // that fits the current view best; the SVG's own aspect ratio (from its
+    // viewBox) is preserved and scaled to fit within that page via "meet".
+    const landscape = lastViewportAspect >= 1;
     _printStyle = document.createElement("style");
     _printStyle.textContent = `@page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 0; }`;
     document.head.appendChild(_printStyle);
   });
   addTrackedEvent(globalThis, "afterprint", () => {
-    ui.graph.removeAttribute("width");
-    ui.graph.removeAttribute("height");
     _printStyle?.remove();
     _printStyle = null;
   });
