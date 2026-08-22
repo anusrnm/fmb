@@ -38,7 +38,7 @@
   --angle-label-preview-color: rgba(15, 118, 110, 0.8);
 
   --fs-brand-title: 1.08rem;
-  --fs-version-badge: 0.75rem;
+  --fs-version-badge: 0.6rem;
   --fs-tool-icon: 0.88rem;
   --fs-tool-select: 0.72rem;
   --fs-button-icon: 1.02rem;
@@ -62,7 +62,7 @@
   --fs-tool-icon-md: 0.94rem;
   --fs-tool-select-md: 0.76rem;
   --fs-brand-title-md: 0.96rem;
-  --fs-version-badge-md: 0.66rem;
+  --fs-version-badge-md: 0.55rem;
   --fs-icon-btn-md: 0.92rem;
   --fs-tool-icon-strong-md: 1.08rem;
   --fs-tool-label-md: 0.7rem;
@@ -73,7 +73,7 @@
   --fs-icon-btn-sm: 0.88rem;
 
   --fs-brand-title-xs: 0.9rem;
-  --fs-version-badge-xs: 0.58rem;
+  --fs-version-badge-xs: 0.5rem;
 }
 
 :root[data-theme="dark"] {
@@ -164,8 +164,9 @@ body {
 
 .brand-wrap {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
   white-space: nowrap;
 }
 
@@ -173,6 +174,7 @@ body {
   margin: 0;
   font-size: var(--fs-brand-title);
   letter-spacing: 0.03em;
+  line-height: 1.1;
 }
 
 .version-badge,
@@ -197,7 +199,8 @@ body {
   background: rgba(15, 118, 110, 0.12);
   border: 1px solid rgba(15, 118, 110, 0.22);
   border-radius: 999px;
-  padding: 3px 9px;
+  padding: 0 6px;
+  line-height: 1.4;
 }
 
 .tool-menu {
@@ -343,6 +346,38 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.session-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-select {
+  max-width: 160px;
+  height: 42px;
+  padding: 0 6px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--control-fg);
+  font-size: var(--fs-tool-select);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme="dark"] .session-select {
+  background: rgba(20, 33, 45, 0.92);
+}
+
+.session-select:focus {
+  outline: 2px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 1px;
+}
+
+.session-control .icon-btn {
+  min-width: 38px;
 }
 
 .icon-btn {
@@ -1035,7 +1070,7 @@ svg text.angle-label-preview {
 
   .version-badge {
     font-size: var(--fs-version-badge-md);
-    padding: 2px 7px;
+    padding: 0 6px;
   }
 
   .topbar-right {
@@ -1075,6 +1110,16 @@ svg text.angle-label-preview {
   .actions-menu .icon-btn {
     width: 100%;
     min-width: 0;
+  }
+
+  .session-control {
+    grid-column: 1 / -1;
+  }
+
+  .session-select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
   }
 
   .zoom-controls {
@@ -1174,7 +1219,7 @@ svg text.angle-label-preview {
 
 @media (max-width: 440px) {
   .brand-wrap {
-    gap: 6px;
+    gap: 0;
   }
 
   .brand-wrap h1 {
@@ -1184,6 +1229,6 @@ svg text.angle-label-preview {
   .version-badge {
     display: inline-flex;
     font-size: var(--fs-version-badge-xs);
-    padding: 2px 6px;
+    padding: 0 5px;
   }
 }

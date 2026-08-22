@@ -18,12 +18,15 @@ import "./vendor/polygon-clipping.umd.js";
 import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
+import * as sessions from "./sessions.js";
 
-const VERSION = "2.17.0";
+const VERSION = "2.18.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
-const AUTOSAVE_STORAGE_KEY = "fmb-autosave-draft";
+const SESSIONS_INDEX_STORAGE_KEY = "fmb-sessions";
+// Single-document key from before multi-session support; read once, then migrated away.
+const LEGACY_AUTOSAVE_STORAGE_KEY = "fmb-autosave-draft";
 const MIN_SCALE = 0.01;
 const MAX_SCALE = 320;
 const BACKGROUND_IMAGE_SRC_PATTERN = /^data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
@@ -81,6 +84,9 @@ let cachedGridKey = "";
 let cachedGridLayer = null;
 let historyActions = [];
 let lastAutosaveSnapshot = "";
+let sessionIndex = { activeId: "", sessions: [] };
+// Per-session undo stacks for this page load only; not persisted.
+let sessionHistoryStash = new Map();
 let contextMenuEdgePick = null;
 let contextMenuVertexPointId = null;
 let contextMenuTextId = null;
@@ -125,56 +131,295 @@ function polygonPerimeter(pointIds) {
   return core.polygonPerimeter(state, pointIds);
 }
 
-function clearAutosaveDraft() {
+function readSessionIndex() {
   try {
-    localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+    const raw = localStorage.getItem(SESSIONS_INDEX_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionIndex() {
+  try {
+    localStorage.setItem(
+      SESSIONS_INDEX_STORAGE_KEY,
+      JSON.stringify({ version: VERSION, ...sessionIndex })
+    );
   } catch {
     // Ignore storage failures.
   }
+}
+
+function readSessionPayload(id) {
+  try {
+    const raw = localStorage.getItem(sessions.sessionStorageKey(id));
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    const data = parsed && typeof parsed === "object" ? parsed.data : null;
+    return data && typeof data === "object" ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionPayload(id, name, data) {
+  try {
+    localStorage.setItem(
+      sessions.sessionStorageKey(id),
+      JSON.stringify({ version: VERSION, savedAt: new Date().toISOString(), name, data })
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeSessionPayload(id) {
+  try {
+    localStorage.removeItem(sessions.sessionStorageKey(id));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function getActiveSession() {
+  return sessions.findSession(sessionIndex, sessionIndex.activeId);
+}
+
+function getActiveSessionName() {
+  return getActiveSession()?.name ?? "Untitled diagram";
+}
+
+function clearAutosaveDraft() {
+  removeSessionPayload(sessionIndex.activeId);
   lastAutosaveSnapshot = "";
 }
 
 function persistAutosaveNow() {
-  try {
-    const snapshot = serializeCoreState();
-    const serializedSnapshot = JSON.stringify(snapshot);
-    if (serializedSnapshot === lastAutosaveSnapshot) {
-      return false;
-    }
-    localStorage.setItem(
-      AUTOSAVE_STORAGE_KEY,
-      JSON.stringify({
-        version: VERSION,
-        savedAt: new Date().toISOString(),
-        data: snapshot,
-      })
-    );
-    lastAutosaveSnapshot = serializedSnapshot;
-    return true;
-  } catch {
+  const active = getActiveSession();
+  if (!active) {
     return false;
+  }
+
+  const snapshot = serializeCoreState();
+  const serializedSnapshot = JSON.stringify(snapshot);
+  if (serializedSnapshot === lastAutosaveSnapshot) {
+    return false;
+  }
+
+  if (!writeSessionPayload(active.id, active.name, snapshot)) {
+    return false;
+  }
+  lastAutosaveSnapshot = serializedSnapshot;
+  sessionIndex = sessions.touchSession(sessionIndex, active.id, new Date().toISOString());
+  writeSessionIndex();
+  return true;
+}
+
+// Loads the active session's geometry into state. Returns false when it has no
+// stored payload yet (a brand new session keeps whatever is already on the canvas).
+function loadActiveSession() {
+  const payload = readSessionPayload(sessionIndex.activeId);
+  if (!payload) {
+    lastAutosaveSnapshot = "";
+    return false;
+  }
+
+  try {
+    applyCoreState(payload);
+  } catch {
+    removeSessionPayload(sessionIndex.activeId);
+    lastAutosaveSnapshot = "";
+    return false;
+  }
+  lastAutosaveSnapshot = JSON.stringify(serializeCoreState());
+  return true;
+}
+
+// Reads the session index, migrating a pre-multi-session autosave draft into the
+// first named session so existing users keep their work.
+function initializeSessions() {
+  sessionHistoryStash = new Map();
+  const stored = readSessionIndex();
+  if (stored) {
+    sessionIndex = sessions.normalizeIndex(stored);
+    writeSessionIndex();
+    return;
+  }
+
+  sessionIndex = sessions.normalizeIndex(null);
+  let legacy = null;
+  try {
+    const raw = localStorage.getItem(LEGACY_AUTOSAVE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    legacy = parsed && typeof parsed === "object" && parsed.data ? parsed.data : null;
+  } catch {
+    legacy = null;
+  }
+
+  if (legacy) {
+    writeSessionPayload(sessionIndex.activeId, getActiveSessionName(), legacy);
+  }
+  try {
+    localStorage.removeItem(LEGACY_AUTOSAVE_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+  writeSessionIndex();
+}
+
+function stashSessionHistory(id) {
+  if (id) {
+    sessionHistoryStash.set(id, {
+      history: state.history,
+      historyIndex: state.historyIndex,
+      actions: historyActions,
+    });
   }
 }
 
-function restoreAutosaveDraft() {
-  try {
-    const raw = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
-    if (!raw) {
-      return false;
-    }
-    const parsed = JSON.parse(raw);
-    const payload = parsed && typeof parsed === "object" && parsed.data ? parsed.data : null;
-    if (!payload || typeof payload !== "object") {
-      clearAutosaveDraft();
-      return false;
-    }
-    applyCoreState(payload);
-    lastAutosaveSnapshot = JSON.stringify(serializeCoreState());
-    return true;
-  } catch {
-    clearAutosaveDraft();
-    return false;
+function restoreSessionHistory(id) {
+  const stashed = sessionHistoryStash.get(id);
+  state.history = stashed ? stashed.history : [];
+  state.historyIndex = stashed ? stashed.historyIndex : -1;
+  historyActions = stashed ? stashed.actions : [];
+  return Boolean(stashed);
+}
+
+function renderSessionControl() {
+  if (!ui.sessionSelect) {
+    return;
   }
+
+  ui.sessionSelect.replaceChildren(
+    ...sessionIndex.sessions.map((session) => {
+      const option = document.createElement("option");
+      option.value = session.id;
+      option.textContent = session.name;
+      return option;
+    })
+  );
+  ui.sessionSelect.value = sessionIndex.activeId;
+  ui.sessionSelect.title = `Session: ${getActiveSessionName()}`;
+  ui.sessionDeleteBtn.disabled = sessionIndex.sessions.length <= 1;
+  ui.sessionDeleteBtn.title = ui.sessionDeleteBtn.disabled
+    ? "The last session cannot be deleted"
+    : "Delete session";
+}
+
+function switchSession(id) {
+  if (!id || id === sessionIndex.activeId || !sessions.findSession(sessionIndex, id)) {
+    renderSessionControl();
+    return;
+  }
+
+  persistAutosaveNow();
+  stashSessionHistory(sessionIndex.activeId);
+  sessionIndex = sessions.setActiveSession(sessionIndex, id);
+  writeSessionIndex();
+  lastAutosaveSnapshot = "";
+
+  if (!loadActiveSession()) {
+    applyCoreState({});
+  }
+  if (!restoreSessionHistory(id)) {
+    pushHistory("Open session");
+  }
+
+  renderSessionControl();
+  updateUndoRedoButtons();
+  render();
+  setStatus(`Switched to session "${getActiveSessionName()}".`, "success");
+}
+
+async function promptSessionName(message, defaultValue) {
+  const result = await openNumericInputDialog(
+    message,
+    defaultValue,
+    (raw) => sessions.sanitizeSessionName(raw, ""),
+    "Enter a session name."
+  );
+  return result.cancelled ? null : result.value;
+}
+
+async function createSession() {
+  const name = await promptSessionName("New session name", "Untitled diagram");
+  if (!name) {
+    return;
+  }
+
+  persistAutosaveNow();
+  stashSessionHistory(sessionIndex.activeId);
+  const added = sessions.addSession(sessionIndex, name);
+  sessionIndex = added.index;
+  writeSessionIndex();
+
+  lastAutosaveSnapshot = "";
+  applyCoreState({});
+  restoreSessionHistory(added.session.id);
+  pushHistory("Create session");
+
+  renderSessionControl();
+  updateUndoRedoButtons();
+  render();
+  setStatus(`Created session "${added.session.name}".`, "success");
+}
+
+async function renameActiveSession() {
+  const active = getActiveSession();
+  if (!active) {
+    return;
+  }
+
+  const name = await promptSessionName("Rename session", active.name);
+  if (!name) {
+    return;
+  }
+
+  const renamed = sessions.renameSession(sessionIndex, active.id, name);
+  sessionIndex = renamed.index;
+  writeSessionIndex();
+  writeSessionPayload(active.id, renamed.name, serializeCoreState());
+  renderSessionControl();
+  setStatus(`Session renamed to "${renamed.name}".`, "success");
+}
+
+function deleteActiveSession() {
+  const active = getActiveSession();
+  if (!active || sessionIndex.sessions.length <= 1) {
+    setStatus("The last session cannot be deleted.", "warning");
+    return;
+  }
+
+  if (!window.confirm(`Delete session "${active.name}"? This cannot be undone.`)) {
+    return;
+  }
+
+  const result = sessions.removeSession(sessionIndex, active.id);
+  if (!result.removed) {
+    return;
+  }
+
+  sessionIndex = result.index;
+  sessionHistoryStash.delete(active.id);
+  removeSessionPayload(active.id);
+  writeSessionIndex();
+
+  lastAutosaveSnapshot = "";
+  if (!loadActiveSession()) {
+    applyCoreState({});
+  }
+  if (!restoreSessionHistory(sessionIndex.activeId)) {
+    pushHistory("Open session");
+  }
+
+  renderSessionControl();
+  updateUndoRedoButtons();
+  render();
+  setStatus(`Deleted session "${active.name}". Now in "${getActiveSessionName()}".`, "success");
 }
 
 function saveDisplaySettings() {
@@ -3743,17 +3988,19 @@ function downloadTextFile(filename, content, type) {
 }
 
 function exportJson() {
+  const name = getActiveSessionName();
   const payload = {
     format: "fmb-studio",
+    name,
     exportedAt: new Date().toISOString(),
     data: serializeCoreState(),
   };
   downloadTextFile(
-    "fmb-studio-diagram.json",
+    `${sessions.slugifySessionName(name)}.json`,
     JSON.stringify(payload, null, 2),
     "application/json;charset=utf-8"
   );
-  setStatus("Diagram exported as JSON.");
+  setStatus(`Session "${name}" exported as JSON.`);
 }
 
 function getSvgSnapshotMarkup() {
@@ -3769,15 +4016,17 @@ function getSvgSnapshotMarkup() {
   svgClone.prepend(style);
   const metadata = document.createElementNS(SVG_NS, "metadata");
   metadata.setAttribute("id", "fmb-state");
+  metadata.setAttribute("data-session-name", getActiveSessionName());
   metadata.textContent = JSON.stringify(serializeCoreState());
   svgClone.prepend(metadata);
   return `<?xml version="1.0" encoding="UTF-8"?>\n${svgClone.outerHTML}`;
 }
 
 function exportSvg() {
+  const name = getActiveSessionName();
   const markup = getSvgSnapshotMarkup();
-  downloadTextFile("fmb-studio-diagram.svg", markup, "image/svg+xml;charset=utf-8");
-  setStatus("Diagram exported as SVG.");
+  downloadTextFile(`${sessions.slugifySessionName(name)}.svg`, markup, "image/svg+xml;charset=utf-8");
+  setStatus(`Session "${name}" exported as SVG.`);
 }
 
 function importFromText(filename, text) {
@@ -4148,6 +4397,13 @@ function wireEvents() {
     }
   });
 
+  addTrackedEvent(ui.sessionSelect, "change", () => {
+    switchSession(ui.sessionSelect.value);
+  });
+  addTrackedEvent(ui.sessionNewBtn, "click", createSession);
+  addTrackedEvent(ui.sessionRenameBtn, "click", renameActiveSession);
+  addTrackedEvent(ui.sessionDeleteBtn, "click", deleteActiveSession);
+
   addTrackedEvent(ui.undoBtn, "click", undo);
   addTrackedEvent(ui.redoBtn, "click", redo);
   addTrackedEvent(ui.zoomInBtn, "click", () => zoomBy(1.15));
@@ -4171,7 +4427,7 @@ function wireEvents() {
   addTrackedEvent(ui.resetSettingsBtn, "click", resetDisplaySettings);
   addTrackedEvent(ui.clearAutosaveBtn, "click", () => {
     clearAutosaveDraft();
-    setStatus("Autosave draft cleared.", "success");
+    setStatus(`Saved copy of "${getActiveSessionName()}" cleared.`, "success");
   });
   addTrackedEvent(ui.lockSelectedBtn, "click", () => {
     const result = lockSelectedPoints();
@@ -4567,15 +4823,17 @@ function bootstrap() {
   loadDisplaySettings();
   syncDisplayControlsToState();
   ui.versionBadge.textContent = `v${VERSION}`;
+  initializeSessions();
   initializeDemoGeometry();
-  const recoveredAutosave = restoreAutosaveDraft();
+  const recoveredAutosave = loadActiveSession();
+  renderSessionControl();
   disposeWiredEvents = wireEvents();
   setMode("select");
   pushHistory(recoveredAutosave ? "Recover autosaved draft" : "Initialize diagram");
   render();
   setStatus(
     recoveredAutosave
-      ? "Recovered autosaved draft. Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y."
+      ? `Recovered session "${getActiveSessionName()}". Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y.`
       : "Ready. Right click the graph for coordinate tools. Shortcuts: 1-9, 0 tools, Ctrl+Z, Ctrl+Y."
   );
 }

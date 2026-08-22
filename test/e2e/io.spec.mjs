@@ -195,13 +195,13 @@ test("imports a JSON diagram and exports JSON and SVG snapshots", async ({ page 
     page.waitForEvent("download"),
     page.getByTitle("Export JSON").click(),
   ]);
-  await expect(jsonDownload.suggestedFilename()).toBe("fmb-studio-diagram.json");
+  await expect(jsonDownload.suggestedFilename()).toBe("untitled-diagram.json");
 
   const [svgDownload] = await Promise.all([
     page.waitForEvent("download"),
     page.getByTitle("Export SVG").click(),
   ]);
-  await expect(svgDownload.suggestedFilename()).toBe("fmb-studio-diagram.svg");
+  await expect(svgDownload.suggestedFilename()).toBe("untitled-diagram.svg");
 });
 
 test("rejects invalid JSON coordinates without replacing the current diagram", async ({ page }) => {
@@ -306,7 +306,7 @@ test("restores autosaved geometry edits after reload", async ({ page }) => {
 
   await page.reload();
 
-  await expect(page.getByRole("status")).toContainText("Recovered autosaved draft");
+  await expect(page.getByRole("status")).toContainText('Recovered session "Untitled diagram"');
   await expect(page.locator("#graph text", { hasText: "P1 (-7.8, -4)" })).toBeVisible();
 });
 
@@ -316,7 +316,7 @@ test("restores active constraints from autosave after reload", async ({ page }) 
   await expect(page.getByRole("status")).toContainText("Locked 1 point");
 
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("Recovered autosaved draft");
+  await expect(page.getByRole("status")).toContainText('Recovered session "Untitled diagram"');
 
   await clickGraph(page, 373, 434);
   await page.keyboard.press("ArrowRight");
