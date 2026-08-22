@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.6";
+const VERSION = "2.17.0";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -3100,8 +3100,7 @@ function fitViewport(selectionOnly = false) {
 function zoomPercentText() {
   const percent = (state.scale / 32) * 100;
   const rounded = Math.round(percent * 100) / 100;
-  const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
-  return `${display}%`;
+  return `${rounded.toFixed(2)}%`;
 }
 
 function updateZoomResetButton() {
@@ -3925,6 +3924,10 @@ async function handleKeyDown(event) {
   }
 
   if (event.key === "Escape") {
+    if (!ui.settingsPanel.hidden) {
+      ui.settingsPanel.hidden = true;
+      return;
+    }
     if (!ui.contextMenu.hidden) {
       hideContextMenu();
       return;

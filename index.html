@@ -74,15 +74,6 @@
             <button id="redo-btn" class="icon-btn" type="button" title="Redo (Ctrl+Y)">
               <span class="icon">↷</span>
             </button>
-            <button id="zoom-out-btn" class="icon-btn" type="button" title="Zoom out">
-              <span class="icon">-</span>
-            </button>
-            <button id="zoom-in-btn" class="icon-btn" type="button" title="Zoom in">
-              <span class="icon">+</span>
-            </button>
-            <button id="zoom-reset-btn" class="icon-btn" type="button" title="Reset zoom and position">
-              <span class="icon">100%</span>
-            </button>
             <button id="fit-drawing-btn" class="icon-btn" type="button" title="Fit drawing (F)" aria-label="Fit drawing">
               <span class="icon">□</span>
             </button>
@@ -115,6 +106,17 @@
       <main class="workspace">
         <section class="graph-panel" aria-label="Graph editor">
           <svg id="graph" viewBox="0 0 1600 900" role="img" aria-label="Interactive graph"></svg>
+          <div class="zoom-controls" aria-label="Zoom controls">
+            <button id="zoom-in-btn" class="icon-btn" type="button" title="Zoom in" aria-label="Zoom in">
+              <span class="icon">+</span>
+            </button>
+            <button id="zoom-out-btn" class="icon-btn" type="button" title="Zoom out" aria-label="Zoom out">
+              <span class="icon">-</span>
+            </button>
+            <button id="zoom-reset-btn" class="icon-btn" type="button" title="Reset zoom and position" aria-label="Reset zoom and position">
+              <span class="icon">100%</span>
+            </button>
+          </div>
           <input id="inline-text-editor" class="inline-text-editor" type="text" maxlength="140" hidden aria-label="Inline text editor" />
           <div id="vertex-edit-hint" class="vertex-edit-hint" hidden></div>
           <div id="status" class="status-pill" role="status" aria-live="polite"></div>
