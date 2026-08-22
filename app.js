@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.3";
+const VERSION = "2.16.4";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -324,10 +324,23 @@ function getSelectedPointIds() {
 }
 
 function getOrderedSelectedPoints() {
-  return [...getSelectedPointIds()]
-    .map((pointId) => getPointById(pointId))
-    .filter(Boolean)
-    .sort((a, b) => a.id - b.id);
+  const selectedIds = getSelectedPointIds();
+  return state.points.filter((point) => selectedIds.has(point.id));
+}
+
+function getCoordinateEditorPoints() {
+  if (state.selection.polygons.size === 1) {
+    const polygonId = [...state.selection.polygons][0];
+    const polygon = getPolygonById(polygonId);
+    if (polygon) {
+      return polygon.pointIds
+        .map((pointId) => getPointById(pointId))
+        .filter(Boolean);
+    }
+  }
+
+  const selectedPoints = getOrderedSelectedPoints();
+  return selectedPoints.length > 0 ? selectedPoints : state.points;
 }
 
 function serializeCoreState() {
@@ -549,15 +562,23 @@ function closeInlineTextEditor(save, switchToSelect) {
   state.textEdit = null;
 
   if (save) {
+    let changedText = false;
     if (payload.textId) {
       const target = getTextById(payload.textId);
       if (target && value) {
         target.content = value;
+        changedText = true;
         pushHistory("Edit text");
       }
     } else if (value) {
       addText(payload.world, value);
+      changedText = true;
       pushHistory("Add text");
+    }
+    if (changedText && !state.display.showText) {
+      state.display.showText = true;
+      saveDisplaySettings();
+      syncDisplayControlsToState();
     }
     render();
   }
@@ -2997,17 +3018,64 @@ function updateZoomResetButton() {
 }
 
 function pointsToCoordinateList() {
-  const selectedPoints = getOrderedSelectedPoints();
-  const points = selectedPoints.length > 0
-    ? selectedPoints
-    : state.points.slice().sort((a, b) => a.id - b.id);
+  const points = getCoordinateEditorPoints();
 
   if (points.length === 0) {
     return "No points in the current selection.";
   }
 
-  // Labels are positional (P1, P2, …) matching what the canvas displays.
-  return points.map((point, i) => `P${i + 1}, ${round2(point.x)}, ${round2(point.y)}`).join("\n");
+  const pointDisplayIndex = new Map(state.points.map((point, index) => [point.id, index + 1]));
+  return points
+    .map((point, index) => {
+      const displayIndex = pointDisplayIndex.get(point.id) || index + 1;
+      return `P${displayIndex}, ${round2(point.x)}, ${round2(point.y)}`;
+    })
+    .join("\n");
+}
+
+function startSelectModeEditingFromKeyboard() {
+  if (state.mode !== "select") {
+    return false;
+  }
+
+  const hasGeometrySelection =
+    state.selection.points.size > 0 ||
+    state.selection.segments.size > 0 ||
+    state.selection.polygons.size > 0;
+
+  if (hasGeometrySelection) {
+    showPointListDialog(pointsToCoordinateList());
+    setStatus("Editing selected coordinates. Press Enter to apply.");
+    return true;
+  }
+
+  if (state.selection.texts.size === 1) {
+    const textId = [...state.selection.texts][0];
+    const text = getTextById(textId);
+    if (!text) {
+      setStatus("Selected text no longer exists.", "warning");
+      return true;
+    }
+    openInlineTextEditor(worldToScreen(text), {
+      textId: text.id,
+      world: { x: text.x, y: text.y },
+      initialValue: text.content,
+    });
+    setStatus("Editing text. Press Enter to save.");
+    return true;
+  }
+
+  if (state.selection.texts.size > 1) {
+    setStatus("Select exactly one text item to edit.", "warning");
+    return true;
+  }
+
+  const rect = getRect();
+  const centerScreen = { x: rect.width * 0.5, y: rect.height * 0.5 };
+  const centerWorld = screenToWorld(centerScreen);
+  openInlineTextEditor(centerScreen, { world: centerWorld, initialValue: "" });
+  setStatus("Type text and press Enter.");
+  return true;
 }
 
 function updateCoordinateInspector() {
@@ -3628,11 +3696,25 @@ function isEditingTextInput(target) {
 }
 
 async function handleKeyDown(event) {
+  if (ui.pointsDialog.open && event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+    if (event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    drawShapeFromCoordinateInput();
+    return;
+  }
+
   if (isEditingTextInput(event.target)) {
     return;
   }
 
   if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+    if (startSelectModeEditingFromKeyboard()) {
+      event.preventDefault();
+      return;
+    }
+
     const willHandle =
       (state.mode === "segment" && state.construction?.tool === "segment") ||
       (state.mode === "polygon" && state.polygonDraft.length > 0);
@@ -3891,8 +3973,25 @@ function wireEvents() {
 
   addTrackedEvent(ui.mobileMenuToggle, "click", () => {
     const nextOpen = !ui.toolMenu.classList.contains("open");
+    ui.actionsMenu.classList.remove("open");
+    ui.mobileActionsToggle.setAttribute("aria-expanded", "false");
     ui.toolMenu.classList.toggle("open", nextOpen);
     ui.mobileMenuToggle.setAttribute("aria-expanded", String(nextOpen));
+  });
+
+  addTrackedEvent(ui.mobileActionsToggle, "click", () => {
+    const nextOpen = !ui.actionsMenu.classList.contains("open");
+    ui.toolMenu.classList.remove("open");
+    ui.mobileMenuToggle.setAttribute("aria-expanded", "false");
+    ui.actionsMenu.classList.toggle("open", nextOpen);
+    ui.mobileActionsToggle.setAttribute("aria-expanded", String(nextOpen));
+  });
+
+  addTrackedEvent(ui.actionsMenu, "click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.closest("button")) {
+      ui.actionsMenu.classList.remove("open");
+      ui.mobileActionsToggle.setAttribute("aria-expanded", "false");
+    }
   });
 
   addTrackedEvent(ui.undoBtn, "click", undo);
@@ -4264,10 +4363,15 @@ function wireEvents() {
 
   addTrackedEvent(ui.inlineTextEditor, "keydown", (event) => {
     if (event.key === "Enter") {
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
       event.preventDefault();
+      event.stopPropagation();
       closeInlineTextEditor(true, state.mode === "text");
     } else if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       closeInlineTextEditor(false, true);
     }
   });

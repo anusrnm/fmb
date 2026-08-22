@@ -64,45 +64,50 @@
         </nav>
 
         <div class="topbar-right">
-          <button id="undo-btn" class="icon-btn" type="button" title="Undo (Ctrl+Z)">
-            <span class="icon">↶</span>
+          <button id="mobile-actions-toggle" class="icon-btn mobile-only" type="button" aria-expanded="false" aria-controls="actions-menu" title="Open actions">
+            <span class="icon">⋮</span>
           </button>
-          <button id="redo-btn" class="icon-btn" type="button" title="Redo (Ctrl+Y)">
-            <span class="icon">↷</span>
-          </button>
-          <button id="zoom-out-btn" class="icon-btn" type="button" title="Zoom out">
-            <span class="icon">-</span>
-          </button>
-          <button id="zoom-in-btn" class="icon-btn" type="button" title="Zoom in">
-            <span class="icon">+</span>
-          </button>
-          <button id="zoom-reset-btn" class="icon-btn" type="button" title="Reset zoom and position">
-            <span class="icon">100%</span>
-          </button>
-          <button id="fit-drawing-btn" class="icon-btn" type="button" title="Fit drawing (F)" aria-label="Fit drawing">
-            <span class="icon">□</span>
-          </button>
-          <button id="fit-selection-btn" class="icon-btn" type="button" title="Fit selection (Shift+F)" aria-label="Fit selection">
-            <span class="icon">▣</span>
-          </button>
-          <button id="export-json-btn" class="icon-btn" type="button" title="Export JSON">
-            <span class="icon">⇩J</span>
-          </button>
-          <button id="export-svg-btn" class="icon-btn" type="button" title="Export SVG">
-            <span class="icon">⇩S</span>
-          </button>
-          <button id="import-btn" class="icon-btn" type="button" title="Import JSON or SVG">
-            <span class="icon">⇧</span>
-          </button>
-          <button id="theme-toggle-btn" class="icon-btn" type="button" title="Toggle theme">
-            <span class="icon">◐</span>
-          </button>
-          <button id="help-btn" class="icon-btn" type="button" title="Keyboard commands (?)" aria-label="Keyboard commands">
-            <span class="icon">?</span>
-          </button>
-          <button id="settings-btn" class="icon-btn settings-btn" type="button" title="Settings">
-            <span class="icon">⚙</span>
-          </button>
+          <div id="actions-menu" class="actions-menu" aria-label="Canvas actions">
+            <button id="undo-btn" class="icon-btn" type="button" title="Undo (Ctrl+Z)">
+              <span class="icon">↶</span>
+            </button>
+            <button id="redo-btn" class="icon-btn" type="button" title="Redo (Ctrl+Y)">
+              <span class="icon">↷</span>
+            </button>
+            <button id="zoom-out-btn" class="icon-btn" type="button" title="Zoom out">
+              <span class="icon">-</span>
+            </button>
+            <button id="zoom-in-btn" class="icon-btn" type="button" title="Zoom in">
+              <span class="icon">+</span>
+            </button>
+            <button id="zoom-reset-btn" class="icon-btn" type="button" title="Reset zoom and position">
+              <span class="icon">100%</span>
+            </button>
+            <button id="fit-drawing-btn" class="icon-btn" type="button" title="Fit drawing (F)" aria-label="Fit drawing">
+              <span class="icon">□</span>
+            </button>
+            <button id="fit-selection-btn" class="icon-btn" type="button" title="Fit selection (Shift+F)" aria-label="Fit selection">
+              <span class="icon">▣</span>
+            </button>
+            <button id="export-json-btn" class="icon-btn" type="button" title="Export JSON">
+              <span class="icon">⇩J</span>
+            </button>
+            <button id="export-svg-btn" class="icon-btn" type="button" title="Export SVG">
+              <span class="icon">⇩S</span>
+            </button>
+            <button id="import-btn" class="icon-btn" type="button" title="Import JSON or SVG">
+              <span class="icon">⇧</span>
+            </button>
+            <button id="theme-toggle-btn" class="icon-btn" type="button" title="Toggle theme">
+              <span class="icon">◐</span>
+            </button>
+            <button id="help-btn" class="icon-btn" type="button" title="Keyboard commands (?)" aria-label="Keyboard commands">
+              <span class="icon">?</span>
+            </button>
+            <button id="settings-btn" class="icon-btn settings-btn" type="button" title="Settings">
+              <span class="icon">⚙</span>
+            </button>
+          </div>
           <input id="import-file" type="file" accept=".json,.svg" hidden />
         </div>
       </header>

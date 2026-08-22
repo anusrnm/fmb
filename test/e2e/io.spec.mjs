@@ -36,6 +36,94 @@ test("validates and previews coordinates in a non-modal inspector", async ({ pag
   await expect(page.locator("#points-dialog")).toBeVisible();
 });
 
+test("shows polygon coordinates using vertex order with matching point indices", async ({ page }) => {
+  await page.locator("#graph").dblclick({ position: { x: 597, y: 402 } });
+  await clickGraph(page, 650, 360);
+
+  await page.keyboard.press("c");
+  await expect(page.locator("#points-dialog")).toBeVisible();
+
+  const content = await page.locator("#points-output").inputValue();
+  expect(content).toMatch(/^P1, .*\nP5, .*\nP2, .*\nP3, .*\nP4, .*$/);
+});
+
+test("applies coordinate edits with Enter key", async ({ page }) => {
+  await page.keyboard.press("c");
+  await expect(page.locator("#points-dialog")).toBeVisible();
+
+  await page.locator("#points-output").fill("0, 0\n5, 0\n4, 3\n1, 4");
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("status")).toContainText("Shape created from 4 coordinates");
+  await expect(page.locator("#points-dialog")).toBeHidden();
+});
+
+test("opens coordinate editor with Enter for selected polygon", async ({ page }) => {
+  await clickGraph(page, 700, 360);
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator("#points-dialog")).toBeVisible();
+  await expect(page.locator("#points-output")).toHaveValue(/P\d, /);
+});
+
+test("opens inline text editor with Enter for selected text", async ({ page }) => {
+  await page.locator("#graph text", { hasText: "Title Goes Here" }).click();
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator("#inline-text-editor")).toBeVisible();
+  await expect(page.locator("#inline-text-editor")).toHaveValue("Title Goes Here");
+});
+
+test("creates text in text mode when pressing Enter", async ({ page }) => {
+  await page.getByTitle("Text").click();
+  await clickGraph(page, 760, 420);
+  await expect(page.locator("#inline-text-editor")).toBeVisible();
+
+  await page.locator("#inline-text-editor").fill("Parcel Note");
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator("#inline-text-editor")).toBeHidden();
+  await expect(page.locator("#graph text", { hasText: "Parcel Note" })).toBeVisible();
+});
+
+test("creates text from typed keyboard input and Enter", async ({ page }) => {
+  await page.getByTitle("Text").click();
+  await clickGraph(page, 760, 420);
+  await expect(page.locator("#inline-text-editor")).toBeFocused();
+
+  await page.keyboard.type("Typed via keyboard");
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator("#inline-text-editor")).toBeHidden();
+  await expect(page.locator("#graph text", { hasText: "Typed via keyboard" })).toBeVisible();
+});
+
+test("makes newly added text visible when text display was off", async ({ page }) => {
+  await page.getByTitle("Settings").click();
+  await page.locator("#show-text-toggle").uncheck();
+  await expect(page.locator("#graph text", { hasText: "Title Goes Here" })).toHaveCount(0);
+
+  await page.getByTitle("Text").click();
+  await clickGraph(page, 760, 420);
+  await page.keyboard.type("Visible Note");
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator("#graph text", { hasText: "Visible Note" })).toBeVisible();
+  await expect(page.locator("#show-text-toggle")).toBeChecked();
+});
+
+test("creates text in select mode with Enter when nothing is selected", async ({ page }) => {
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#inline-text-editor")).toBeVisible();
+
+  await page.locator("#inline-text-editor").fill("Center Note");
+  await page.keyboard.press("Enter");
+
+  await expect(page.locator("#inline-text-editor")).toBeHidden();
+  await expect(page.locator("#graph text", { hasText: "Center Note" })).toBeVisible();
+});
+
 test("imports a JSON diagram and exports JSON and SVG snapshots", async ({ page }) => {
   const diagram = {
     data: {

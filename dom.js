@@ -12,6 +12,8 @@ export function queryUi(doc) {
     modeSelectGroups: Array.from(doc.querySelectorAll(".tool-select-wrap")),
     toolMenu: doc.getElementById("tool-menu"),
     mobileMenuToggle: doc.getElementById("mobile-menu-toggle"),
+    actionsMenu: doc.getElementById("actions-menu"),
+    mobileActionsToggle: doc.getElementById("mobile-actions-toggle"),
     undoBtn: doc.getElementById("undo-btn"),
     redoBtn: doc.getElementById("redo-btn"),
     zoomInBtn: doc.getElementById("zoom-in-btn"),

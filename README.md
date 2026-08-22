@@ -16,6 +16,18 @@ or
 deno run --allow-env --allow-net --allow-read main.ts
 ```
 
+With Bun:
+
+```bash
+bun run start:bun
+```
+
+For watch mode during development:
+
+```bash
+bun run dev:bun
+```
+
 ## Main features
 
 - Drawing modes: Select, Box Select, Point, Mid Point, Segment, Parallel, Perpendicular, Polygon, Angle, and Text.
