@@ -73,6 +73,8 @@ export function queryUi(doc) {
     polygonIntersectBtn: doc.getElementById("polygon-intersect-btn"),
     pointsDialog: doc.getElementById("points-dialog"),
     pointsOutput: doc.getElementById("points-output"),
+    lineStyleControl: doc.getElementById("line-style-control"),
+    lineStyleSelect: doc.getElementById("line-style-select"),
     coordinateValidation: doc.getElementById("coordinate-validation"),
     coordinatePreview: doc.getElementById("coordinate-preview"),
     copyPointsBtn: doc.getElementById("copy-points-btn"),

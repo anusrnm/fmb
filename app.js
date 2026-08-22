@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.4";
+const VERSION = "2.16.5";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -28,6 +28,11 @@ const MIN_SCALE = 0.01;
 const MAX_SCALE = 320;
 const BACKGROUND_IMAGE_SRC_PATTERN = /^data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[a-z0-9+/=\s]+$/i;
 const BACKGROUND_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const LINE_STYLE_DASHES = {
+  solid: null,
+  dashed: "8 6",
+  dotted: "2 6",
+};
 
 const MODES = [
   "select",
@@ -382,6 +387,7 @@ function applyCoreState(serialized) {
         a: Number(segment.a),
         b: Number(segment.b),
         kind: String(segment.kind || "segment"),
+        lineStyle: Object.hasOwn(LINE_STYLE_DASHES, segment.lineStyle) ? segment.lineStyle : "solid",
       }))
     : [];
   const polygons = Array.isArray(serialized.polygons)
@@ -1803,12 +1809,14 @@ function renderNow() {
           : "#1f6d64";
     if (state.display.showSegments) {
       const isDiagonal = isSegmentInsidePolygon(segment.a, segment.b);
+      const dashArray = LINE_STYLE_DASHES[segment.lineStyle] || (isDiagonal ? "6 4" : null);
       segmentsGroup.append(
         makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
+          class: "segment-line",
           stroke: selected ? "#f59e0b" : hovered ? "#0891b2" : color,
           "stroke-width": selected ? 3.4 : hovered ? 3 : 2.3,
           "stroke-linecap": "round",
-          ...(isDiagonal && { "stroke-dasharray": "6 4" }),
+          ...(dashArray && { "stroke-dasharray": dashArray }),
         })
       );
     }
@@ -3105,6 +3113,15 @@ function updateCoordinateInspector() {
   ui.coordinateValidation.dataset.tone = canApply ? "success" : "warning";
   ui.drawPointsBtn.disabled = !canApply;
 
+  const selectedSegments = [...state.selection.segments]
+    .map((segmentId) => getSegmentById(segmentId))
+    .filter(Boolean);
+  ui.lineStyleControl.hidden = selectedSegments.length === 0;
+  if (selectedSegments.length > 0) {
+    const styles = new Set(selectedSegments.map((segment) => segment.lineStyle || "solid"));
+    ui.lineStyleSelect.value = styles.size === 1 ? [...styles][0] : "mixed";
+  }
+
   if (points.length < 2) {
     return;
   }
@@ -3140,6 +3157,31 @@ function showPointListDialog(content = pointsToCoordinateList()) {
   }
   ui.pointsOutput.focus();
   ui.pointsOutput.setSelectionRange(0, 0);
+}
+
+function updateSelectedSegmentLineStyle(lineStyle) {
+  if (!Object.hasOwn(LINE_STYLE_DASHES, lineStyle)) {
+    return;
+  }
+  const selectedSegments = [...state.selection.segments]
+    .map((segmentId) => getSegmentById(segmentId))
+    .filter(Boolean);
+  if (selectedSegments.length === 0) {
+    return;
+  }
+  let changed = false;
+  for (const segment of selectedSegments) {
+    if ((segment.lineStyle || "solid") !== lineStyle) {
+      segment.lineStyle = lineStyle;
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return;
+  }
+  pushHistory(`Change line style to ${lineStyle}`);
+  render();
+  setStatus(`Line style changed to ${lineStyle}.`, "success");
 }
 
 function pointIsUsedOutsidePolygon(pointId, polygonId) {
@@ -4206,6 +4248,15 @@ function wireEvents() {
         state.selection.points.add(hitPoint.id);
       }
       render();
+    } else if (hitSegment) {
+      const keepMultiSelection =
+        state.selection.segments.size > 1 &&
+        state.selection.segments.has(hitSegment.id);
+      if (!keepMultiSelection) {
+        clearSelection();
+        state.selection.segments.add(hitSegment.id);
+      }
+      render();
     } else if (hitPolygon) {
       const keepMultiSelection =
         state.selection.polygons.size > 1 &&
@@ -4304,6 +4355,11 @@ function wireEvents() {
   });
 
   addTrackedEvent(ui.pointsOutput, "input", updateCoordinateInspector);
+
+  addTrackedEvent(ui.lineStyleSelect, "change", (event) => {
+    updateSelectedSegmentLineStyle(event.target.value);
+    updateCoordinateInspector();
+  });
 
   addTrackedEvent(ui.drawPointsBtn, "click", () => {
     drawShapeFromCoordinateInput();

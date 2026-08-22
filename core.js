@@ -107,7 +107,7 @@ export function addSegment(state, a, b, kind = "segment") {
     return null;
   }
 
-  const segment = { id: createId(state), a, b, kind };
+  const segment = { id: createId(state), a, b, kind, lineStyle: "solid" };
   state.segments.push(segment);
   return segment;
 }

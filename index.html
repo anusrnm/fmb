@@ -269,6 +269,15 @@
         <h3>Coordinates</h3>
         <p>Edit existing coordinates or paste new ones as <code>label, x, y</code> or <code></code>x, y</code> (one point per line).</p>
         <textarea id="points-output" rows="12"></textarea>
+        <label id="line-style-control" class="line-style-control" hidden>
+          Line style
+          <select id="line-style-select" aria-label="Line style">
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+            <option value="mixed" disabled>Mixed</option>
+          </select>
+        </label>
         <div id="coordinate-validation" class="coordinate-validation" role="status"></div>
         <svg id="coordinate-preview" class="coordinate-preview" viewBox="0 0 300 140" aria-label="Coordinate shape preview"></svg>
         <div class="dialog-actions">

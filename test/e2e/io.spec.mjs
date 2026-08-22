@@ -36,6 +36,25 @@ test("validates and previews coordinates in a non-modal inspector", async ({ pag
   await expect(page.locator("#points-dialog")).toBeVisible();
 });
 
+test("changes a segment line style from the Coordinates menu", async ({ page }) => {
+  const segment = page.locator("#graph .segment-line").first();
+  const box = await segment.boundingBox();
+  if (!box) {
+    throw new Error("Expected a rendered segment.");
+  }
+
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5, { button: "right" });
+  await page.getByRole("button", { name: "Coordinates" }).click();
+  await expect(page.locator("#line-style-control")).toBeVisible();
+  await page.locator("#line-style-select").selectOption("dotted");
+
+  await expect(segment).toHaveAttribute("stroke-dasharray", "2 6");
+  await expect(page.locator("#status")).toContainText("Line style changed to dotted");
+
+  await page.locator("#undo-btn").click();
+  await expect(segment).toHaveAttribute("stroke-dasharray", "6 4");
+});
+
 test("shows polygon coordinates using vertex order with matching point indices", async ({ page }) => {
   await page.locator("#graph").dblclick({ position: { x: 597, y: 402 } });
   await clickGraph(page, 650, 360);
