@@ -40,6 +40,7 @@ export function createState() {
       points: new Set(),
       segments: new Set(),
       polygons: new Set(),
+      polygonEdges: new Set(),
       texts: new Set(),
     },
     history: [],
@@ -121,6 +122,7 @@ export function addPolygon(state, pointIds) {
     id: createId(state),
     pointIds: [...pointIds],
     labelOffset: { x: 0, y: 0 },
+    edgeStyles: {},
   };
   state.polygons.push(polygon);
   return polygon;
@@ -236,10 +238,12 @@ export function normalizeGeometry(state) {
   });
 
   state.polygons = state.polygons
-    .map((polygon) => ({
-      ...polygon,
-      pointIds: polygon.pointIds.filter((pointId) => pointIds.has(pointId)),
-    }))
+    .map((polygon) => {
+      const filteredPointIds = polygon.pointIds.filter((pointId) => pointIds.has(pointId));
+      // Edge indices are meaningless once vertices drop out, so reset styling with them.
+      const edgeStyles = filteredPointIds.length === polygon.pointIds.length ? polygon.edgeStyles || {} : {};
+      return { ...polygon, pointIds: filteredPointIds, edgeStyles };
+    })
     .filter((polygon) => polygon.pointIds.length >= 3);
 
   state.angleAnnotations = state.angleAnnotations.filter((item) => {
@@ -253,6 +257,15 @@ export function normalizeGeometry(state) {
   state.selection.segments = new Set([...state.selection.segments].filter((id) => segmentIds.has(id)));
   state.selection.polygons = new Set([...state.selection.polygons].filter((id) => polygonIds.has(id)));
   state.selection.texts = new Set([...state.selection.texts].filter((id) => textIds.has(id)));
+  const validPolygonEdgeKeys = new Set();
+  for (const polygon of state.polygons) {
+    for (let index = 0; index < polygon.pointIds.length; index += 1) {
+      validPolygonEdgeKeys.add(`${polygon.id}:${index}`);
+    }
+  }
+  state.selection.polygonEdges = new Set(
+    [...state.selection.polygonEdges].filter((key) => validPolygonEdgeKeys.has(key))
+  );
   normalizeConstraints(state);
   rebuildPointIndex(state);
 }

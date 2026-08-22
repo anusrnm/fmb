@@ -19,7 +19,7 @@ import * as core from "./core.js";
 import { queryUi } from "./dom.js";
 import * as history from "./history.js";
 
-const VERSION = "2.16.5";
+const VERSION = "2.16.6";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
@@ -33,6 +33,29 @@ const LINE_STYLE_DASHES = {
   dashed: "8 6",
   dotted: "2 6",
 };
+
+function polygonEdgeKey(polygonId, edgeIndex) {
+  return `${polygonId}:${edgeIndex}`;
+}
+
+function parsePolygonEdgeKey(key) {
+  const [polygonId, edgeIndex] = key.split(":").map(Number);
+  return { polygonId, edgeIndex };
+}
+
+function sanitizePolygonEdgeStyles(raw) {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const sanitized = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const index = Number(key);
+    if (Number.isInteger(index) && index >= 0 && Object.hasOwn(LINE_STYLE_DASHES, value)) {
+      sanitized[index] = value;
+    }
+  }
+  return sanitized;
+}
 
 const MODES = [
   "select",
@@ -302,6 +325,7 @@ function clearSelection() {
   state.selection.points.clear();
   state.selection.segments.clear();
   state.selection.polygons.clear();
+  state.selection.polygonEdges.clear();
   state.selection.texts.clear();
 }
 
@@ -322,6 +346,15 @@ function getSelectedPointIds() {
       for (const pointId of polygon.pointIds) {
         ids.add(pointId);
       }
+    }
+  }
+
+  for (const key of state.selection.polygonEdges) {
+    const { polygonId, edgeIndex } = parsePolygonEdgeKey(key);
+    const polygon = getPolygonById(polygonId);
+    if (polygon && edgeIndex < polygon.pointIds.length) {
+      ids.add(polygon.pointIds[edgeIndex]);
+      ids.add(polygon.pointIds[(edgeIndex + 1) % polygon.pointIds.length]);
     }
   }
 
@@ -400,6 +433,7 @@ function applyCoreState(serialized) {
               y: readFiniteNumber(polygon.labelOffset.y, "polygon label y offset"),
             }
           : { x: 0, y: 0 },
+        edgeStyles: sanitizePolygonEdgeStyles(polygon.edgeStyles),
       }))
     : [];
   const texts = Array.isArray(serialized.texts)
@@ -1609,18 +1643,18 @@ function updateVertexEditHint(polygon, canInsertVertex, canRemoveVertex) {
 
   ui.vertexEditHint.hidden = false;
   if (canInsertVertex && canRemoveVertex) {
-    ui.vertexEditHint.textContent = "Vertex edit: Shift+I inserts on hovered edge. X removes selected vertex.";
+    ui.vertexEditHint.textContent = "Vertex edit: Ctrl+Click a hovered edge to insert. X removes selected vertex.";
     return;
   }
   if (canInsertVertex) {
-    ui.vertexEditHint.textContent = "Vertex edit: Shift+I inserts on hovered edge. Select one vertex and press X to remove.";
+    ui.vertexEditHint.textContent = "Vertex edit: Ctrl+Click a hovered edge to insert. Select one vertex and press X to remove.";
     return;
   }
   if (canRemoveVertex) {
-    ui.vertexEditHint.textContent = "Vertex edit: X removes selected vertex. Hover an edge and press Shift+I to insert.";
+    ui.vertexEditHint.textContent = "Vertex edit: X removes selected vertex. Ctrl+Click a hovered edge to insert.";
     return;
   }
-  ui.vertexEditHint.textContent = "Vertex edit active: hover a polygon edge and press Shift+I, or select one vertex and press X.";
+  ui.vertexEditHint.textContent = "Vertex edit active: Ctrl+Click a polygon edge to insert, or select one vertex and press X.";
 }
 
 function renderNow() {
@@ -1681,10 +1715,27 @@ function renderNow() {
       polygonsGroup.append(
         makePolygon(polygonScreenPoints, {
           fill: selected ? "rgba(245, 158, 11, 0.28)" : hovered ? "rgba(15, 118, 110, 0.24)" : "rgba(15, 118, 110, 0.16)",
-          stroke: selected ? "#b45309" : hovered ? "#0891b2" : "#0f766e",
-          "stroke-width": selected || hovered ? 2.2 : 1.6,
+          stroke: "none",
         })
       );
+      // Drawn as individual lines (not the polygon's own stroke) so each edge can carry its own line style/selection.
+      for (let index = 0; index < points.length; index += 1) {
+        const next = (index + 1) % points.length;
+        const aScreen = polygonScreenPoints[index];
+        const bScreen = polygonScreenPoints[next];
+        const edgeSelected = state.selection.polygonEdges.has(polygonEdgeKey(polygon.id, index));
+        const edgeStyle = polygon.edgeStyles?.[index] || "solid";
+        const dashArray = LINE_STYLE_DASHES[edgeStyle];
+        polygonsGroup.append(
+          makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
+            class: "polygon-edge-line",
+            stroke: edgeSelected ? "#f59e0b" : selected ? "#b45309" : hovered ? "#0891b2" : "#0f766e",
+            "stroke-width": edgeSelected ? 3.4 : selected || hovered ? 2.2 : 1.6,
+            "stroke-linecap": "round",
+            ...(dashArray && { "stroke-dasharray": dashArray }),
+          })
+        );
+      }
     }
 
     const area = polygonArea(polygon.pointIds);
@@ -1808,8 +1859,7 @@ function renderNow() {
           ? "#be123c"
           : "#1f6d64";
     if (state.display.showSegments) {
-      const isDiagonal = isSegmentInsidePolygon(segment.a, segment.b);
-      const dashArray = LINE_STYLE_DASHES[segment.lineStyle] || (isDiagonal ? "6 4" : null);
+      const dashArray = LINE_STYLE_DASHES[segment.lineStyle || "solid"];
       segmentsGroup.append(
         makeLine(aScreen.x, aScreen.y, bScreen.x, bScreen.y, {
           class: "segment-line",
@@ -2051,6 +2101,19 @@ function toggleSelection(kind, id) {
   } else {
     state.selection[kind].add(id);
   }
+}
+
+function togglePolygonEdgeSelection(polygonId, edgeIndex) {
+  const key = polygonEdgeKey(polygonId, edgeIndex);
+  if (state.selection.polygonEdges.has(key)) {
+    state.selection.polygonEdges.delete(key);
+    render();
+    setStatus("Polygon edge deselected.");
+    return;
+  }
+  state.selection.polygonEdges.add(key);
+  render();
+  setStatus("Polygon edge selected. Press C to change its line style.", "success");
 }
 
 function resolvePointForDrawing(worldPoint) {
@@ -2515,6 +2578,15 @@ function handlePointerDown(event) {
   }
 
   if (state.mode === "polygon") {
+    if (state.polygonDraft.length === 0 && (event.ctrlKey || event.metaKey)) {
+      const vertexPolygon = getSelectedPolygonForVertexEditing();
+      const insertEdgePick = vertexPolygon ? findNearestPolygonEdge(world, vertexPolygon.id, 14) : null;
+      if (insertEdgePick) {
+        insertPolygonVertexOnEdge(insertEdgePick);
+        return;
+      }
+    }
+
     const target = resolvePointerTarget(screen);
     const hitPoint = target?.kind === "point" ? target.item : null;
     const hitText = target?.kind === "text" ? target.item : null;
@@ -2623,6 +2695,22 @@ function handlePointerDown(event) {
   const hitPolygon = target?.kind === "polygon" ? target.item : null;
 
   const additive = event.ctrlKey || event.metaKey;
+
+  if (additive && !hitPoint && !hitText && !hitSegment) {
+    const vertexPolygon = getSelectedPolygonForVertexEditing();
+    if (vertexPolygon) {
+      const insertEdgePick = findNearestPolygonEdge(world, vertexPolygon.id, 14);
+      if (insertEdgePick) {
+        insertPolygonVertexOnEdge(insertEdgePick);
+        return;
+      }
+    }
+    const polygonEdgePick = findNearestEdge(world, 14);
+    if (polygonEdgePick && polygonEdgePick.edge.edgeType === "polygon-edge") {
+      togglePolygonEdgeSelection(polygonEdgePick.edge.polygonId, polygonEdgePick.edge.edgeIndex);
+      return;
+    }
+  }
 
   if (!hitPoint && !hitText && !hitSegment && !hitPolygon && !hitPolygonLabel) {
     if (!additive) {
@@ -3049,7 +3137,8 @@ function startSelectModeEditingFromKeyboard() {
   const hasGeometrySelection =
     state.selection.points.size > 0 ||
     state.selection.segments.size > 0 ||
-    state.selection.polygons.size > 0;
+    state.selection.polygons.size > 0 ||
+    state.selection.polygonEdges.size > 0;
 
   if (hasGeometrySelection) {
     showPointListDialog(pointsToCoordinateList());
@@ -3113,12 +3202,10 @@ function updateCoordinateInspector() {
   ui.coordinateValidation.dataset.tone = canApply ? "success" : "warning";
   ui.drawPointsBtn.disabled = !canApply;
 
-  const selectedSegments = [...state.selection.segments]
-    .map((segmentId) => getSegmentById(segmentId))
-    .filter(Boolean);
-  ui.lineStyleControl.hidden = selectedSegments.length === 0;
-  if (selectedSegments.length > 0) {
-    const styles = new Set(selectedSegments.map((segment) => segment.lineStyle || "solid"));
+  const lineStyleTargets = getSelectedLineStyleTargets();
+  ui.lineStyleControl.hidden = lineStyleTargets.length === 0;
+  if (lineStyleTargets.length > 0) {
+    const styles = new Set(lineStyleTargets.map((target) => target.getStyle()));
     ui.lineStyleSelect.value = styles.size === 1 ? [...styles][0] : "mixed";
   }
 
@@ -3159,20 +3246,49 @@ function showPointListDialog(content = pointsToCoordinateList()) {
   ui.pointsOutput.setSelectionRange(0, 0);
 }
 
+function getSelectedLineStyleTargets() {
+  const targets = [];
+  for (const segmentId of state.selection.segments) {
+    const segment = getSegmentById(segmentId);
+    if (segment) {
+      targets.push({
+        getStyle: () => segment.lineStyle || "solid",
+        setStyle: (style) => {
+          segment.lineStyle = style;
+        },
+      });
+    }
+  }
+  for (const key of state.selection.polygonEdges) {
+    const { polygonId, edgeIndex } = parsePolygonEdgeKey(key);
+    const polygon = getPolygonById(polygonId);
+    if (polygon && edgeIndex < polygon.pointIds.length) {
+      targets.push({
+        getStyle: () => polygon.edgeStyles?.[edgeIndex] || "solid",
+        setStyle: (style) => {
+          if (!polygon.edgeStyles) {
+            polygon.edgeStyles = {};
+          }
+          polygon.edgeStyles[edgeIndex] = style;
+        },
+      });
+    }
+  }
+  return targets;
+}
+
 function updateSelectedSegmentLineStyle(lineStyle) {
   if (!Object.hasOwn(LINE_STYLE_DASHES, lineStyle)) {
     return;
   }
-  const selectedSegments = [...state.selection.segments]
-    .map((segmentId) => getSegmentById(segmentId))
-    .filter(Boolean);
-  if (selectedSegments.length === 0) {
+  const targets = getSelectedLineStyleTargets();
+  if (targets.length === 0) {
     return;
   }
   let changed = false;
-  for (const segment of selectedSegments) {
-    if ((segment.lineStyle || "solid") !== lineStyle) {
-      segment.lineStyle = lineStyle;
+  for (const target of targets) {
+    if (target.getStyle() !== lineStyle) {
+      target.setStyle(lineStyle);
       changed = true;
     }
   }
@@ -3779,17 +3895,10 @@ async function handleKeyDown(event) {
     return;
   }
 
-  if (event.key.toLowerCase() === "i" && !event.ctrlKey && !event.metaKey && state.hoverWorld) {
-    const selectedPolygon = event.shiftKey ? getSelectedPolygonForVertexEditing() : null;
-    const edgePick = selectedPolygon
-      ? findNearestPolygonEdge(state.hoverWorld, selectedPolygon.id)
-      : findNearestEdge(state.hoverWorld);
+  if (event.key.toLowerCase() === "i" && !event.ctrlKey && !event.metaKey && !event.shiftKey && state.hoverWorld) {
+    const edgePick = findNearestEdge(state.hoverWorld);
     if (!edgePick) {
       setStatus("Move the pointer closer to an edge before inserting a point.", "warning");
-      return;
-    }
-    if (event.shiftKey) {
-      insertPolygonVertexOnEdge(edgePick.edge.edgeType === "polygon-edge" ? edgePick : null);
       return;
     }
     const inserted = insertPointOnEdge(edgePick, edgePick.projection.point);
@@ -4259,8 +4368,8 @@ function wireEvents() {
       render();
     } else if (hitPolygon) {
       const keepMultiSelection =
-        state.selection.polygons.size > 1 &&
-        state.selection.polygons.has(hitPolygon.id);
+        (state.selection.polygons.size > 1 && state.selection.polygons.has(hitPolygon.id)) ||
+        state.selection.polygonEdges.size > 0;
       if (!keepMultiSelection) {
         clearSelection();
         state.selection.polygons.add(hitPolygon.id);

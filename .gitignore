@@ -106,6 +106,7 @@ playwright-report/
 test-results/
 blob-report/
 .playwright/
+.playwright-mcp/
 
 # Graphify
 graphify-out

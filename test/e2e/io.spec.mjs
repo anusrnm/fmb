@@ -52,7 +52,28 @@ test("changes a segment line style from the Coordinates menu", async ({ page }) 
   await expect(page.locator("#status")).toContainText("Line style changed to dotted");
 
   await page.locator("#undo-btn").click();
-  await expect(segment).toHaveAttribute("stroke-dasharray", "6 4");
+  await expect(segment).not.toHaveAttribute("stroke-dasharray");
+});
+
+test("selects a polygon edge with Ctrl+Click and edits its line style", async ({ page }) => {
+  const edge = page.locator("#graph .polygon-edge-line").first();
+  const box = await edge.boundingBox();
+  if (!box) {
+    throw new Error("Expected a rendered polygon edge.");
+  }
+
+  await page.keyboard.down("Control");
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.keyboard.up("Control");
+  await expect(page.getByRole("status")).toContainText("Polygon edge selected");
+
+  await page.keyboard.press("c");
+  await expect(page.locator("#line-style-control")).toBeVisible();
+  await expect(page.locator("#line-style-select")).toHaveValue("solid");
+
+  await page.locator("#line-style-select").selectOption("dashed");
+  await expect(edge).toHaveAttribute("stroke-dasharray", "8 6");
+  await expect(page.locator("#status")).toContainText("Line style changed to dashed");
 });
 
 test("shows polygon coordinates using vertex order with matching point indices", async ({ page }) => {

@@ -164,6 +164,12 @@ test("reports duplicate segment creation instead of claiming success", async ({ 
 });
 
 test("inserts and removes a polygon vertex with vertex edit tools", async ({ page }) => {
+  const graphBox = await page.locator("#graph").boundingBox();
+  if (!graphBox) {
+    throw new Error("Expected graph bounds.");
+  }
+  await clickGraph(page, graphBox.width * 0.5 + 12, graphBox.height * 0.5 + 6);
+
   const pointA = await page.locator("#graph text", { hasText: "P1 (-8, -4)" }).evaluate((node) => {
     const x = Number(node.getAttribute("x"));
     const y = Number(node.getAttribute("y"));
@@ -179,8 +185,9 @@ test("inserts and removes a polygon vertex with vertex edit tools", async ({ pag
     y: (pointA.y + pointB.y) * 0.5,
   };
 
-  await page.locator("#graph").hover({ position: midpoint });
-  await page.keyboard.press("Shift+I");
+  await page.keyboard.down("Control");
+  await page.locator("#graph").click({ position: midpoint });
+  await page.keyboard.up("Control");
   await expect(page.getByRole("status")).toContainText("Polygon vertex inserted");
   const afterInsert = await exportDiagram(page);
   expect(afterInsert.points).toHaveLength(5);
@@ -239,7 +246,7 @@ test("shows vertex handles, edge affordance, and inline hint for polygon editing
   await clickGraph(page, graphBox.width * 0.5 + 12, graphBox.height * 0.5 + 6);
   await expect(page.locator("#graph circle.vertex-handle")).toHaveCount(4);
   await expect(page.locator("#vertex-edit-hint")).toBeVisible();
-  await expect(page.locator("#vertex-edit-hint")).toContainText("Shift+I");
+  await expect(page.locator("#vertex-edit-hint")).toContainText("Ctrl+Click");
   await expect(page.locator("#vertex-edit-hint")).toContainText("X");
 
   const pointA = await page.locator("#graph text", { hasText: "P1 (-8, -4)" }).evaluate((node) => {
@@ -315,7 +322,7 @@ test("removing a shared polygon vertex keeps the shared point in other polygons"
   expect(poly8?.pointIds).toContain(1);
 });
 
-test("Shift+I inserts a single polygon vertex when overlapping edges exist", async ({ page }) => {
+test("Ctrl+Click inserts a single polygon vertex when overlapping edges exist", async ({ page }) => {
   const diagram = {
     data: {
       nextId: 7,
@@ -358,11 +365,13 @@ test("Shift+I inserts a single polygon vertex when overlapping edges exist", asy
     throw new Error("Expected right polygon bounds.");
   }
 
-  // Select polygon mode, then hover the shared B-C edge midpoint.
+  // Select the right polygon in polygon mode (away from its centroid label band), then
+  // Ctrl+Click its shared B-C edge to insert a vertex.
   await page.getByTitle("Polygon").click();
-  await rightPolygon.click({ position: { x: rightPolygonBox.width * 0.5, y: rightPolygonBox.height * 0.5 } });
-  await page.mouse.move(rightPolygonBox.x + 2, rightPolygonBox.y + rightPolygonBox.height * 0.5);
-  await page.keyboard.press("Shift+I");
+  await rightPolygon.click({ position: { x: rightPolygonBox.width * 0.5, y: rightPolygonBox.height * 0.85 } });
+  await page.keyboard.down("Control");
+  await page.mouse.click(rightPolygonBox.x + 2, rightPolygonBox.y + rightPolygonBox.height * 0.5);
+  await page.keyboard.up("Control");
   await expect(page.getByRole("status")).toContainText("Polygon vertex inserted");
 
   const data = await exportDiagram(page);
