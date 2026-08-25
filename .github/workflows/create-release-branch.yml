@@ -1,0 +1,56 @@
+name: Create Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 2.19.0 (leave blank to auto-bump the minor version)"
+        required: false
+
+jobs:
+  branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            node --input-type=module -e "
+              import { readFileSync } from 'node:fs';
+              const [major, minor] = JSON.parse(readFileSync('./package.json', 'utf8')).version.split('.').map(Number);
+              console.log('value=' + major + '.' + (minor + 1) + '.0');
+            " >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release branch
+        run: git checkout -b release/${{ steps.version.outputs.value }}
+
+      - name: Bump package.json version
+        run: npm version ${{ steps.version.outputs.value }} --no-git-tag-version --allow-same-version
+
+      # version.js is the single source of truth for the in-app version badge; keep it in sync.
+      - name: Bump version.js
+        run: |
+          node --input-type=module -e "
+            import { readFileSync, writeFileSync } from 'node:fs';
+            const p = 'version.js';
+            const c = readFileSync(p, 'utf8').replace(/VERSION = \".*?\"/, 'VERSION = \"${{ steps.version.outputs.value }}\"');
+            writeFileSync(p, c);
+          "
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: bump version to ${{ steps.version.outputs.value }}"
+          git push origin release/${{ steps.version.outputs.value }}

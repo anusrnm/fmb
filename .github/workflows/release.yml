@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      # Keeps the in-app version badge correct even if this tag wasn't cut via create-release-branch.yml.
+      - name: Sync version.js with tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node --input-type=module -e "
+            import { readFileSync, writeFileSync } from 'node:fs';
+            const p = 'version.js';
+            const c = readFileSync(p, 'utf8').replace(/VERSION = \".*?\"/, 'VERSION = \"$VERSION\"');
+            writeFileSync(p, c);
+          "
+          if ! git diff --quiet -- version.js; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore: sync version.js to $VERSION"
+            git push origin HEAD:main
+          fi
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm test
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
