@@ -2,7 +2,7 @@
 // state as an explicit parameter, so they can be unit-tested without a DOM.
 // app.js holds a single live state built here and delegates to these functions.
 
-import { clamp, round2, distanceWorld } from "./geometry.js";
+import { clamp, round2, distanceWorld, triangleAreaFromSides } from "./geometry.js";
 
 export function createState() {
   return {
@@ -305,6 +305,16 @@ export function getAllEdges(state) {
 export function polygonArea(state, pointIds) {
   if (pointIds.length < 3) {
     return 0;
+  }
+
+  if (pointIds.length === 3) {
+    const points = pointIds.map((pointId) => getPointById(state, pointId)).filter(Boolean);
+    if (points.length === 3) {
+      const sideA = distanceWorld(points[0], points[1]);
+      const sideB = distanceWorld(points[1], points[2]);
+      const sideC = distanceWorld(points[2], points[0]);
+      return triangleAreaFromSides(sideA, sideB, sideC);
+    }
   }
 
   let sum = 0;

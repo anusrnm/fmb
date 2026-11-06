@@ -199,6 +199,23 @@ test("polygonArea and polygonPerimeter measure the square", () => {
   assert.equal(polygonPerimeter(state, [polygon.pointIds[0]]), 0);
 });
 
+test("polygonArea calculates a triangle from its side lengths", () => {
+  const state = createState();
+  const a = addPoint(state, 0, 0);
+  const b = addPoint(state, 10, 0);
+  const c = addPoint(state, 0, 10);
+  const area = polygonArea(state, [a.id, b.id, c.id]);
+  assert.ok(Math.abs(area - 50) < 1e-9);
+
+  const triangle = createState();
+  const pointA = addPoint(triangle, 0, 0);
+  const pointB = addPoint(triangle, 10, 0);
+  const pointC = addPoint(triangle, 5, 9);
+  const scaleneArea = polygonArea(triangle, [pointA.id, pointB.id, pointC.id]);
+  assert.ok(Number.isFinite(scaleneArea));
+  assert.ok(scaleneArea > 0);
+});
+
 test("getAllEdges lists segments and polygon edges", () => {
   const { state, a, b, polygon } = squareState();
   addSegment(state, a.id, b.id, "segment");

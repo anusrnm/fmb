@@ -14,6 +14,7 @@ import {
   projectPointToSegment,
   round2,
   round3,
+  triangleAreaFromSides,
 } from "../../geometry.js";
 
 test("clamp constrains a value to the inclusive range", () => {
@@ -42,6 +43,13 @@ test("areaConversions converts square metres to all supported units", () => {
   assert.ok(Math.abs(result.acres - 2.4710538147) < 1e-6);
   assert.ok(Math.abs(result.cents - 247.10538147) < 1e-6);
   assert.ok(Math.abs(result.sqft - 107639.1041671) < 1e-3);
+});
+
+test("triangleAreaFromSides calculates area with Heron's formula", () => {
+  assert.ok(Math.abs(triangleAreaFromSides(10, 10.41, 10.31) - 45.3655615638) < 1e-9);
+  assert.equal(triangleAreaFromSides(3, 4, 5), 6);
+  assert.equal(triangleAreaFromSides(1, 1, 2.1), 0);
+  assert.equal(triangleAreaFromSides(0, 4, 5), 0);
 });
 
 test("projectPointToSegment clamps the projection to the segment", () => {

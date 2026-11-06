@@ -33,6 +33,25 @@ export function areaConversions(areaSqm) {
   };
 }
 
+export function triangleAreaFromSides(a, b, c) {
+  if (![a, b, c].every((side) => Number.isFinite(side) && side > 0)) {
+    return 0;
+  }
+
+  const sides = [a, b, c].sort((left, right) => left - right);
+  if (sides[0] + sides[1] <= sides[2]) {
+    return 0;
+  }
+
+  const semiperimeter = (sides[0] + sides[1] + sides[2]) * 0.5;
+  const radicand =
+    semiperimeter *
+    (semiperimeter - sides[0]) *
+    (semiperimeter - sides[1]) *
+    (semiperimeter - sides[2]);
+  return Math.sqrt(Math.max(0, radicand));
+}
+
 export function projectPointToSegment(worldPoint, aWorld, bWorld) {
   const abx = bWorld.x - aWorld.x;
   const aby = bWorld.y - aWorld.y;
