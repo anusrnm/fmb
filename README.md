@@ -32,6 +32,9 @@ bun run dev:bun
 
 - Drawing modes: Select, Box Select, Point, Mid Point, Segment, Parallel, Perpendicular, Polygon, Angle, and Text.
 - Polygon drafting closes by clicking the first vertex and shows draft shading while building.
+- Side lengths creates one possible polygon with its first vertex at (0, 0), from 3 to 256 lengths entered in edge order. The longest side must be shorter than the sum of the others; coordinates retain full precision while labels are rounded.
+- Right-click a polygon and choose Edit Side Lengths to re-plot it; lengths are displayed to two decimal places (or two significant digits below 0.01). When the side count stays the same, unchanged sides retain their precision. Shared vertices are detached so other geometry is unchanged.
+- Deleting a polygon also deletes its vertices unless they are used by other geometry.
 - Double-click on any segment or polygon edge inserts a new point on that edge.
 - Select mode supports click selection, Ctrl/Cmd additive selection, drag to move, and Delete/Backspace removal.
 - Graph workspace includes major/minor grid lines and smooth zoom/pan.

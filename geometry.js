@@ -52,6 +52,60 @@ export function triangleAreaFromSides(a, b, c) {
   return Math.sqrt(Math.max(0, radicand));
 }
 
+export function polygonFromSideLengths(lengths) {
+  if (!Array.isArray(lengths) || lengths.length < 3 ||
+      !lengths.every((length) => Number.isFinite(length) && length > 0)) {
+    throw new Error("Enter at least three positive, finite side lengths.");
+  }
+
+  const longest = Math.max(...lengths);
+  const sides = lengths.map((length) => length / longest);
+  const longestIndex = sides.indexOf(1);
+  const otherSides = sides.filter((_, index) => index !== longestIndex);
+  if (otherSides.reduce((sum, side) => sum + side, 0) <= 1) {
+    throw new Error("The longest side must be shorter than the sum of the other sides.");
+  }
+
+  // A cyclic polygon has either all minor arcs or one major arc on its longest side.
+  const minorAngleSum = (factor) => sides.reduce((sum, side) => sum + Math.asin(side * factor), 0);
+  const major = minorAngleSum(1) < Math.PI;
+  let low = 0;
+  let high = 1;
+  for (let iteration = 0; iteration < 80; iteration += 1) {
+    const middle = (low + high) / 2;
+    const difference = major
+      ? otherSides.reduce((sum, side) => sum + Math.asin(side * middle), 0) - Math.asin(middle)
+      : minorAngleSum(middle) - Math.PI;
+    if (major ? difference > 0 : difference < 0) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+
+  const factor = (low + high) / 2;
+  let angle = 0;
+  let x = 0;
+  let y = 0;
+  const points = [{ x, y }];
+  for (let index = 0; index < sides.length - 1; index += 1) {
+    const halfAngle = Math.asin(sides[index] * factor);
+    const arc = major && index === longestIndex ? 2 * Math.PI - 2 * halfAngle : 2 * halfAngle;
+    const direction = angle + arc / 2 + Math.PI / 2;
+    x += sides[index] * Math.cos(direction);
+    y += sides[index] * Math.sin(direction);
+    points.push({ x: x * longest, y: y * longest });
+    angle += arc;
+  }
+
+  if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y)) ||
+      points.some((point, index) =>
+        Math.abs(distanceWorld(point, points[(index + 1) % points.length]) / lengths[index] - 1) > 1e-8)) {
+    throw new Error("These side lengths cannot be plotted accurately. Try less extreme values.");
+  }
+  return points;
+}
+
 export function projectPointToSegment(worldPoint, aWorld, bWorld) {
   const abx = bWorld.x - aWorld.x;
   const aby = bWorld.y - aWorld.y;

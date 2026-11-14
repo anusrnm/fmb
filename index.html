@@ -53,6 +53,10 @@
             <span class="icon">⬠</span>
             <span class="label">Polygon</span>
           </button>
+          <button id="polygon-lengths-btn" class="tool-btn" type="button" title="Plot by side lengths">
+            <span class="icon">⬠</span>
+            <span class="label">Side lengths</span>
+          </button>
           <button class="tool-btn" data-mode="angle" type="button" title="Angle">
             <span class="icon">∠</span>
             <span class="label">Angle</span>
@@ -259,12 +263,27 @@
       <button id="view-points-btn" type="button">Coordinates</button>
       <button id="edit-text-btn" type="button">Edit Text</button>
       <button id="join-points-btn" type="button">Join Selected Points</button>
+      <button id="edit-polygon-lengths-btn" type="button">Edit Side Lengths</button>
       <button id="insert-polygon-vertex-btn" type="button">Insert Polygon Vertex</button>
       <button id="remove-polygon-vertex-btn" type="button">Remove Polygon Vertex</button>
       <button id="polygon-union-btn" type="button">Polygon Union</button>
       <button id="polygon-subtract-btn" type="button">Polygon Subtract</button>
       <button id="polygon-intersect-btn" type="button">Polygon Intersect</button>
     </div>
+
+    <dialog id="polygon-lengths-dialog" class="points-dialog">
+      <form id="polygon-lengths-form" novalidate>
+        <h3 id="polygon-lengths-title">Polygon from side lengths</h3>
+        <p>Enter 3 to 256 lengths in order, separated by commas or spaces. One possible shape will be drawn from (0, 0).</p>
+        <label for="polygon-lengths-input">Side lengths</label>
+        <textarea id="polygon-lengths-input" rows="3" placeholder="3, 4, 5" aria-describedby="polygon-lengths-error"></textarea>
+        <p id="polygon-lengths-error" class="coordinate-validation" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="polygon-lengths-cancel" type="button">Cancel</button>
+          <button id="polygon-lengths-submit" type="submit">Draw polygon</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="numeric-input-dialog" class="numeric-input-dialog points-dialog">
       <form id="numeric-input-form" novalidate>

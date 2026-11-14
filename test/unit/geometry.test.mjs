@@ -11,6 +11,7 @@ import {
   distanceWorld,
   findSelfIntersections,
   normalizeAngleRadians,
+  polygonFromSideLengths,
   projectPointToSegment,
   round2,
   round3,
@@ -50,6 +51,23 @@ test("triangleAreaFromSides calculates area with Heron's formula", () => {
   assert.equal(triangleAreaFromSides(3, 4, 5), 6);
   assert.equal(triangleAreaFromSides(1, 1, 2.1), 0);
   assert.equal(triangleAreaFromSides(0, 4, 5), 0);
+});
+
+test("polygonFromSideLengths preserves ordered lengths for minor and major arcs", () => {
+  for (const sides of [[3, 4, 5], [2, 3, 4, 5], [5, 2, 2, 2], [1, 1, 1, 1, 1]]) {
+    const points = polygonFromSideLengths(sides);
+    assert.equal(points.length, sides.length);
+    assert.deepEqual(findSelfIntersections(points), []);
+    sides.forEach((side, index) => {
+      assert.ok(Math.abs(distanceWorld(points[index], points[(index + 1) % points.length]) - side) < 1e-8);
+    });
+  }
+});
+
+test("polygonFromSideLengths rejects invalid and impossible polygons", () => {
+  for (const sides of [[], [1, 2], [1, 1, 2], [1, 2, 4], [0, 1, 1], [1, NaN, 1]]) {
+    assert.throws(() => polygonFromSideLengths(sides));
+  }
 });
 
 test("projectPointToSegment clamps the projection to the segment", () => {

@@ -9,6 +9,7 @@ import {
   distancePointToSegmentScreen,
   normalizeAngleRadians,
   angleCandidateKey,
+  polygonFromSideLengths,
 } from "./geometry.js";
 import {
   parseCoordinatesText,
@@ -90,6 +91,8 @@ let sessionHistoryStash = new Map();
 let contextMenuEdgePick = null;
 let contextMenuVertexPointId = null;
 let contextMenuTextId = null;
+let editingPolygonLengthsId = null;
+let editingPolygonLengths = [];
 let suppressGraphContextMenuOpen = false;
 let lastViewportAspect = 1;
 const perfCounters = {
@@ -1236,6 +1239,11 @@ function removeSelectedObjects() {
     return;
   }
 
+  const polygonPointIds = new Set(
+    state.polygons
+      .filter((polygon) => state.selection.polygons.has(polygon.id))
+      .flatMap((polygon) => polygon.pointIds)
+  );
   for (const pointId of state.selection.points) {
     removePoint(pointId);
   }
@@ -1243,6 +1251,11 @@ function removeSelectedObjects() {
   state.segments = state.segments.filter((segment) => !state.selection.segments.has(segment.id));
   state.polygons = state.polygons.filter((polygon) => !state.selection.polygons.has(polygon.id));
   state.texts = state.texts.filter((text) => !state.selection.texts.has(text.id));
+  for (const pointId of polygonPointIds) {
+    if (!state.polygonDraft.includes(pointId) && !pointIsUsedOutsidePolygon(pointId, null)) {
+      removePoint(pointId);
+    }
+  }
 
   clearSelection();
   normalizeGeometry();
@@ -3722,6 +3735,93 @@ function drawShapeFromCoordinateInput() {
   setStatus(`Shape created from ${pointIds.length} coordinates.`, "success");
 }
 
+function openPolygonLengthsDialog(polygon = null) {
+  editingPolygonLengthsId = polygon?.id ?? null;
+  ui.polygonLengthsTitle.textContent = polygon ? "Edit side lengths" : "Polygon from side lengths";
+  ui.polygonLengthsSubmit.textContent = polygon ? "Update polygon" : "Draw polygon";
+  editingPolygonLengths = polygon ? polygon.pointIds.map((id, index) => {
+    const point = getPointById(id);
+    const next = getPointById(polygon.pointIds[(index + 1) % polygon.pointIds.length]);
+    const length = distanceWorld(point, next);
+    return { length, display: length > 0 && length < 0.01 ? length.toPrecision(2) : length.toFixed(2) };
+  }) : [];
+  ui.polygonLengthsInput.value = editingPolygonLengths.map((side) => side.display).join(", ");
+  ui.polygonLengthsError.hidden = true;
+  ui.polygonLengthsDialog.showModal();
+  ui.polygonLengthsInput.focus();
+}
+
+function drawPolygonFromLengths() {
+  const input = ui.polygonLengthsInput.value.trim();
+  const groups = input.split(",");
+  const tokens = groups.flatMap((group) => group.trim().split(/\s+/));
+  const numberPattern = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+  let points;
+  try {
+    if (tokens.length > 256 || tokens.some((token) => !numberPattern.test(token))) {
+      throw new Error("Enter up to 256 valid numbers separated by commas or spaces.");
+    }
+    const lengths = tokens.map(Number);
+    if (lengths.length === editingPolygonLengths.length) {
+      lengths.forEach((length, index) => {
+        if (length === Number(editingPolygonLengths[index].display)) {
+          lengths[index] = editingPolygonLengths[index].length;
+        }
+      });
+    }
+    points = polygonFromSideLengths(lengths);
+  } catch (error) {
+    ui.polygonLengthsError.textContent = error instanceof Error ? error.message : "Could not create polygon.";
+    ui.polygonLengthsError.hidden = false;
+    return;
+  }
+
+  const polygon = editingPolygonLengthsId === null ? null : getPolygonById(editingPolygonLengthsId);
+  if (editingPolygonLengthsId !== null && !polygon) {
+    ui.polygonLengthsError.textContent = "The selected polygon no longer exists.";
+    ui.polygonLengthsError.hidden = false;
+    return;
+  }
+  const previousIds = polygon ? [...polygon.pointIds] : [];
+  if (previousIds.some((id, index) =>
+    !pointIsUsedOutsidePolygon(id, polygon.id) && core.isPointLocked(state, id) &&
+    (index >= points.length || distanceWorld(getPointById(id), points[index]) > 1e-10))) {
+    ui.polygonLengthsError.textContent = "Unlock the polygon's points before changing their positions.";
+    ui.polygonLengthsError.hidden = false;
+    return;
+  }
+  const pointIds = points.map((coordinates, index) => {
+    const previousId = previousIds[index];
+    const point = previousId && !pointIsUsedOutsidePolygon(previousId, polygon.id)
+      ? getPointById(previousId)
+      : addPoint(coordinates.x, coordinates.y);
+    point.x = coordinates.x;
+    point.y = coordinates.y;
+    return point.id;
+  });
+  let result = polygon;
+  if (polygon) {
+    polygon.pointIds = pointIds;
+    if (previousIds.length !== pointIds.length) {
+      polygon.edgeStyles = {};
+    }
+    for (const pointId of previousIds) {
+      if (!pointIds.includes(pointId) && !pointIsUsedOutsidePolygon(pointId, polygon.id)) {
+        removePoint(pointId);
+      }
+    }
+    normalizeGeometry();
+  } else {
+    result = addPolygon(pointIds);
+  }
+  clearSelection();
+  state.selection.polygons.add(result.id);
+  pushHistory(polygon ? "Update polygon from side lengths" : "Create polygon from side lengths");
+  ui.polygonLengthsDialog.close();
+  fitViewport(true);
+  setStatus(`Polygon ${polygon ? "updated" : "created"} from ${pointIds.length} side lengths.`, "success");
+}
+
 function insertPolygonVertexOnEdge(edgePick) {
   if (!edgePick || edgePick.edge.edgeType !== "polygon-edge") {
     setStatus("Move closer to a polygon edge to insert a vertex.", "warning");
@@ -4102,6 +4202,9 @@ function isEditingTextInput(target) {
 }
 
 async function handleKeyDown(event) {
+  if (ui.polygonLengthsDialog.open) {
+    return;
+  }
   if (ui.pointsDialog.open && event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
     if (event.shiftKey) {
       return;
@@ -4416,6 +4519,16 @@ function wireEvents() {
   addTrackedEvent(ui.importBtn, "click", () => ui.importFile.click());
   addTrackedEvent(ui.themeToggleBtn, "click", toggleTheme);
   addTrackedEvent(ui.helpBtn, "click", () => ui.helpDialog.showModal());
+  addTrackedEvent(ui.polygonLengthsBtn, "click", () => {
+    ui.toolMenu.classList.remove("open");
+    ui.mobileMenuToggle.setAttribute("aria-expanded", "false");
+    openPolygonLengthsDialog();
+  });
+  addTrackedEvent(ui.polygonLengthsCancel, "click", () => ui.polygonLengthsDialog.close());
+  addTrackedEvent(ui.polygonLengthsForm, "submit", (event) => {
+    event.preventDefault();
+    drawPolygonFromLengths();
+  });
   addTrackedEvent(ui.importFile, "change", handleImport);
 
   addTrackedEvent(ui.settingsBtn, "click", () => {
@@ -4640,6 +4753,8 @@ function wireEvents() {
     contextMenuTextId = hitText ? hitText.id : null;
     ui.joinPointsBtn.hidden = state.selection.points.size < 2;
     ui.editTextBtn.hidden = !hitText;
+    ui.editPolygonLengthsBtn.hidden = !hitPolygon || state.selection.polygons.size !== 1 ||
+      !state.selection.polygons.has(hitPolygon.id);
     ui.insertPolygonVertexBtn.hidden = !polygonEdgePick;
     ui.removePolygonVertexBtn.hidden = !removablePolygon;
     const canRunPolygonBoolean = state.selection.polygons.size === 2;
@@ -4678,6 +4793,16 @@ function wireEvents() {
   addTrackedEvent(ui.joinPointsBtn, "click", () => {
     hideContextMenu();
     joinSelectedPoints();
+  });
+
+  addTrackedEvent(ui.editPolygonLengthsBtn, "click", () => {
+    const polygon = getPolygonById([...state.selection.polygons][0]);
+    hideContextMenu();
+    if (!polygon) {
+      setStatus("Selected polygon no longer exists.", "warning");
+      return;
+    }
+    openPolygonLengthsDialog(polygon);
   });
 
   addTrackedEvent(ui.insertPolygonVertexBtn, "click", () => {

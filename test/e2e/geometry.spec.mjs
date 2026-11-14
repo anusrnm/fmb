@@ -5,6 +5,171 @@ test.beforeEach(async ({ page }) => {
   await gotoEditor(page);
 });
 
+test("draws a polygon from ordered side lengths and supports undo and redo", async ({ page }) => {
+  const before = await exportDiagram(page);
+  await page.getByTitle("Plot by side lengths").click();
+  await page.getByLabel("Side lengths", { exact: true }).fill("5, 2, 2, 2");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+  await expect(page.getByRole("status")).toContainText("Polygon created from 4 side lengths");
+  const data = await exportDiagram(page);
+  expect(data.polygons).toHaveLength(before.polygons.length + 1);
+  const polygon = data.polygons.at(-1);
+  const points = polygon.pointIds.map((id) => data.points.find((point) => point.id === id));
+  expect(points[0]).toMatchObject({ x: 0, y: 0 });
+  [5, 2, 2, 2].forEach((side, index) => {
+    const next = points[(index + 1) % points.length];
+    expect(Math.hypot(points[index].x - next.x, points[index].y - next.y)).toBeCloseTo(side, 7);
+  });
+  await page.locator("#undo-btn").click();
+  expect((await exportDiagram(page)).polygons).toHaveLength(before.polygons.length);
+  await page.locator("#redo-btn").click();
+  expect((await exportDiagram(page)).polygons).toHaveLength(before.polygons.length + 1);
+  await page.reload();
+  const restored = await exportDiagram(page);
+  expect(restored.polygons.at(-1)).toEqual(polygon);
+  expect(restored.points.slice(-points.length)).toEqual(points);
+});
+
+test("deleting a polygon removes its unshared vertices and undo restores them", async ({ page }) => {
+  const before = await exportDiagram(page);
+  await page.getByTitle("Plot by side lengths").click();
+  await page.getByLabel("Side lengths", { exact: true }).fill("3, 4, 5");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+  const created = await exportDiagram(page);
+  const pointIds = created.polygons.at(-1).pointIds;
+  await page.keyboard.press("Delete");
+  const deleted = await exportDiagram(page);
+  expect(deleted.polygons).toHaveLength(before.polygons.length);
+  expect(deleted.points.some((point) => pointIds.includes(point.id))).toBe(false);
+  await page.locator("#undo-btn").click();
+  const restored = await exportDiagram(page);
+  expect(restored.polygons).toEqual(created.polygons);
+  expect(restored.points).toEqual(created.points);
+});
+
+test("deleting a polygon preserves vertices used by other polygons or segments", async ({ page }) => {
+  const diagram = {
+    data: {
+      nextId: 11,
+      scale: 32, panX: 0, panY: 0,
+      points: [
+        { id: 1, x: 0, y: 0 }, { id: 2, x: 4, y: 0 },
+        { id: 3, x: 4, y: 4 }, { id: 4, x: 0, y: 4 },
+        { id: 5, x: -4, y: 0 }, { id: 6, x: -2, y: 3 },
+        { id: 7, x: 6, y: 0 },
+      ],
+      segments: [{ id: 8, a: 2, b: 7, kind: "segment" }],
+      polygons: [
+        { id: 9, pointIds: [1, 2, 3, 4] },
+        { id: 10, pointIds: [1, 5, 6] },
+      ],
+      texts: [], angleAnnotations: [], constraints: [],
+    },
+  };
+  await page.locator("#import-file").setInputFiles({
+    name: "shared-points.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(diagram)),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+  await page.locator("#import-file").evaluate((input) => input.blur());
+  await page.getByTitle("Settings").click();
+  await page.getByLabel("Point and area labels").uncheck();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const graphBox = await page.locator("#graph").boundingBox();
+  await clickGraph(page, graphBox.width / 2 + 64, graphBox.height / 2 - 64);
+  await expect(page.getByRole("status")).toContainText("Dragging shape");
+  await page.keyboard.press("Delete");
+  const data = await exportDiagram(page);
+  expect(data.polygons.map((polygon) => polygon.id)).toEqual([10]);
+  expect(data.points.map((point) => point.id)).toEqual([1, 2, 5, 6, 7]);
+  expect(data.segments.map((segment) => segment.id)).toEqual([8]);
+  await page.locator("#undo-btn").click();
+  await page.locator("#graph").click({
+    button: "right",
+    position: { x: graphBox.width / 2 + 64, y: graphBox.height / 2 - 64 },
+  });
+  await page.getByRole("button", { name: "Edit Side Lengths" }).click();
+  await page.getByLabel("Side lengths", { exact: true }).fill("3, 4, 5");
+  await page.getByRole("button", { name: "Update polygon" }).click();
+  const updated = await exportDiagram(page);
+  expect(updated.polygons.find((polygon) => polygon.id === 10)).toMatchObject(diagram.data.polygons[1]);
+  expect(updated.segments.find((segment) => segment.id === 8)).toMatchObject(diagram.data.segments[0]);
+  expect(updated.points.find((point) => point.id === 1)).toMatchObject(diagram.data.points[0]);
+  expect(updated.points.find((point) => point.id === 2)).toMatchObject(diagram.data.points[1]);
+  expect(updated.polygons.find((polygon) => polygon.id === 9).pointIds).not.toContain(1);
+  expect(updated.polygons.find((polygon) => polygon.id === 9).pointIds).not.toContain(2);
+});
+
+test("side-length dialog reports invalid input without changing the drawing", async ({ page }) => {
+  const before = await exportDiagram(page);
+  await page.getByTitle("Plot by side lengths").click();
+  const input = page.getByLabel("Side lengths", { exact: true });
+  await input.fill("1, 1, 2");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+  await expect(page.getByRole("alert")).toContainText("longest side");
+  await input.fill("3, bad, 5");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+  await expect(page.getByRole("alert")).toContainText("valid numbers");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  expect((await exportDiagram(page)).polygons).toHaveLength(before.polygons.length);
+});
+
+test("edits polygon side lengths from the right-click menu", async ({ page }) => {
+  await page.getByTitle("Plot by side lengths").click();
+  await page.getByLabel("Side lengths", { exact: true }).fill("3, 4, 5");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+  const before = await exportDiagram(page);
+  const graphBox = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({
+    button: "right",
+    position: { x: graphBox.width / 2, y: graphBox.height / 2 },
+  });
+  await page.getByRole("button", { name: "Edit Side Lengths" }).click();
+  const input = page.getByLabel("Side lengths", { exact: true });
+  const originalSides = (await input.inputValue()).split(",").map(Number);
+  [3, 4, 5].forEach((side, index) => expect(originalSides[index]).toBeCloseTo(side, 7));
+  await input.fill("4, 4, 4, 4");
+  await page.getByRole("button", { name: "Update polygon" }).click();
+  await expect(page.getByRole("status")).toContainText("Polygon updated from 4 side lengths");
+  const after = await exportDiagram(page);
+  expect(after.polygons).toHaveLength(before.polygons.length);
+  const polygon = after.polygons.at(-1);
+  expect(polygon.id).toBe(before.polygons.at(-1).id);
+  const points = polygon.pointIds.map((id) => after.points.find((point) => point.id === id));
+  expect(points[0]).toMatchObject({ x: 0, y: 0 });
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length];
+    expect(Math.hypot(point.x - next.x, point.y - next.y)).toBeCloseTo(4, 7);
+  });
+  await page.locator("#undo-btn").click();
+  const undone = await exportDiagram(page);
+  expect(undone.polygons).toEqual(before.polygons);
+  expect(undone.points).toEqual(before.points);
+});
+
+test("rounds displayed side lengths without changing unedited side precision", async ({ page }) => {
+  await page.getByTitle("Plot by side lengths").click();
+  await page.getByLabel("Side lengths", { exact: true }).fill("3.14159, 4.23456, 5.34567");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+  const graphBox = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({
+    button: "right",
+    position: { x: graphBox.width / 2, y: graphBox.height / 2 },
+  });
+  await page.getByRole("button", { name: "Edit Side Lengths" }).click();
+  const input = page.getByLabel("Side lengths", { exact: true });
+  await expect(input).toHaveValue("3.14, 4.23, 5.35");
+  await input.fill("3.25, 4.23, 5.35");
+  await page.getByRole("button", { name: "Update polygon" }).click();
+  const data = await exportDiagram(page);
+  const points = data.polygons.at(-1).pointIds.map((id) => data.points.find((point) => point.id === id));
+  [3.25, 4.23456, 5.34567].forEach((side, index) => {
+    const next = points[(index + 1) % points.length];
+    expect(Math.hypot(points[index].x - next.x, points[index].y - next.y)).toBeCloseTo(side, 7);
+  });
+});
+
 test("creates a segment, inserts its midpoint, and adds text", async ({ page }) => {
   await page.getByLabel("Line tools").selectOption("segment");
   await clickGraph(page, 300, 500);
