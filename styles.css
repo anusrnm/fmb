@@ -873,6 +873,31 @@ svg text.angle-label-preview {
   color: #be123c;
 }
 
+.transform-dialog {
+  width: min(420px, calc(100vw - 28px));
+}
+
+.transform-dialog label {
+  display: block;
+  margin: 8px 0 4px;
+}
+
+.transform-dialog input,
+.transform-dialog select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-3);
+  color: var(--ink);
+}
+
+.transform-dialog fieldset {
+  margin: 12px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+}
+
 .coordinate-preview {
   display: block;
   width: 100%;

@@ -2,7 +2,7 @@
 // state as an explicit parameter, so they can be unit-tested without a DOM.
 // app.js holds a single live state built here and delegates to these functions.
 
-import { clamp, round2, distanceWorld, triangleAreaFromSides } from "./geometry.js";
+import { clamp, round2, distanceWorld, triangleAreaFromSides, transformPoint } from "./geometry.js";
 
 export function createState() {
   return {
@@ -126,6 +126,119 @@ export function addPolygon(state, pointIds) {
   };
   state.polygons.push(polygon);
   return polygon;
+}
+
+export function getPolygonNetwork(state, polygonId) {
+  const polygon = getPolygonById(state, polygonId);
+  if (!polygon || polygon.pointIds.length < 3) {
+    throw new Error("The selected polygon no longer exists.");
+  }
+  const neighbors = new Map();
+  const connect = (a, b) => {
+    if (!neighbors.has(a)) neighbors.set(a, []);
+    if (!neighbors.has(b)) neighbors.set(b, []);
+    neighbors.get(a).push(b);
+    neighbors.get(b).push(a);
+  };
+  for (const shape of state.polygons) {
+    for (const id of shape.pointIds.slice(1)) {
+      connect(shape.pointIds[0], id);
+    }
+  }
+  for (const segment of state.segments) {
+    connect(segment.a, segment.b);
+  }
+  const pointIds = new Set(polygon.pointIds);
+  const pending = [...pointIds];
+  for (let index = 0; index < pending.length; index += 1) {
+    for (const id of neighbors.get(pending[index]) || []) {
+      if (!pointIds.has(id)) {
+        pointIds.add(id);
+        pending.push(id);
+      }
+    }
+  }
+  if ([...pointIds].some((id) => !getPointById(state, id))) {
+    throw new Error("The connected network contains missing points.");
+  }
+  return {
+    pointIds,
+    polygons: state.polygons.filter((shape) => shape.pointIds.some((id) => pointIds.has(id))),
+    segments: state.segments.filter((segment) => pointIds.has(segment.a)),
+    pivot: getPointById(state, polygon.pointIds[0]),
+  };
+}
+
+export function transformPolygonNetwork(state, polygonId, operation) {
+  const network = getPolygonNetwork(state, polygonId);
+  const proposals = [...network.pointIds].map((id) => {
+    const point = getPointById(state, id);
+    return { point, next: transformPoint(point, network.pivot, operation) };
+  });
+  const changed = proposals.filter(({ point, next }) => point.x !== next.x || point.y !== next.y);
+  if (changed.some(({ point }) => isPointLocked(state, point.id))) {
+    throw new Error("Unlock the connected network's points before moving them.");
+  }
+  const labels = network.polygons.map((polygon) => {
+    const offset = polygon.labelOffset || { x: 0, y: 0 };
+    const next = operation.type === "move"
+      ? { ...offset }
+      : transformPoint(offset, { x: 0, y: 0 }, operation);
+    return { polygon, offset, next };
+  });
+  const labelsChanged = labels.some(({ offset, next }) => offset.x !== next.x || offset.y !== next.y);
+  if (changed.length === 0 && !labelsChanged) {
+    return { changed: false, network };
+  }
+  for (const { point, next } of proposals) {
+    point.x = next.x;
+    point.y = next.y;
+  }
+  for (const { polygon, next } of labels) {
+    polygon.labelOffset = next;
+  }
+  return { changed: true, network };
+}
+
+export function pointIsUsedOutsidePolygon(state, pointId, polygonId) {
+  return state.segments.some((segment) => segment.a === pointId || segment.b === pointId) ||
+    state.angleAnnotations.some((item) => item.vertexId === pointId || item.aId === pointId || item.bId === pointId) ||
+    state.polygons.some((polygon) => polygon.id !== polygonId && polygon.pointIds.includes(pointId));
+}
+
+export function rotatePolygon(state, polygonId, pivotId, degrees) {
+  const polygon = getPolygonById(state, polygonId);
+  const pivot = getPointById(state, pivotId);
+  if (!polygon || !pivot) {
+    throw new Error("Select one polygon and one point as the rotation pivot.");
+  }
+  const operation = { type: "rotate", degrees };
+  const proposals = [...new Set(polygon.pointIds)].map((id) => {
+    const point = getPointById(state, id);
+    const next = transformPoint(point, pivot, operation);
+    return { point, next, changed: point.x !== next.x || point.y !== next.y };
+  });
+  if (proposals.some(({ point, changed }) => changed && isPointLocked(state, point.id))) {
+    throw new Error("Unlock the polygon's points before rotating them.");
+  }
+  const offset = polygon.labelOffset || { x: 0, y: 0 };
+  const nextOffset = transformPoint(offset, { x: 0, y: 0 }, operation);
+  if (!proposals.some(({ changed }) => changed) && offset.x === nextOffset.x && offset.y === nextOffset.y) {
+    return { changed: false };
+  }
+  const replacements = new Map();
+  for (const { point, next, changed } of proposals) {
+    if (!changed) continue;
+    const target = pointIsUsedOutsidePolygon(state, point.id, polygon.id)
+      ? addPoint(state, next.x, next.y)
+      : point;
+    target.x = next.x;
+    target.y = next.y;
+    replacements.set(point.id, target.id);
+  }
+  polygon.pointIds = polygon.pointIds.map((id) => replacements.get(id) ?? id);
+  polygon.labelOffset = nextOffset;
+  return { changed: true };
 }
 
 export function addText(state, world, content, size = 16) {

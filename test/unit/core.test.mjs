@@ -24,6 +24,9 @@ import {
   removePoint,
   serializeCoreState,
   togglePointLockConstraint,
+  getPolygonNetwork,
+  transformPolygonNetwork,
+  rotatePolygon,
 } from "../../core.js";
 
 function squareState() {
@@ -35,6 +38,117 @@ function squareState() {
   const polygon = addPolygon(state, [a.id, b.id, c.id, d.id]);
   return { state, a, b, c, d, polygon };
 }
+
+test("network transformation traverses connected shapes and segments only, preserving references", () => {
+  const { state, a, b, c, polygon } = squareState();
+  const e = addPoint(state, 8, 4);
+  const f = addPoint(state, 8, 8);
+  const second = addPolygon(state, [c.id, e.id, f.id]);
+  const g = addPoint(state, 10, 8);
+  const h = addPoint(state, 12, 8);
+  const segment = addSegment(state, f.id, g.id, "parallel");
+  addSegment(state, g.id, h.id);
+  const isolated = addPoint(state, 0, 0);
+  const text = addText(state, { x: 1, y: 1 }, "Unattached");
+  state.backgroundImage = { x: 1, y: 2, width: 3, height: 4 };
+  polygon.edgeStyles = { 1: "dashed" };
+  polygon.labelOffset = { x: 1, y: 2 };
+  second.labelOffset = { x: -3, y: 2 };
+  state.angleAnnotations = [{ id: 99, vertexId: a.id, aId: b.id, bId: c.id }];
+  const before = structuredClone(serializeCoreState(state));
+  const network = getPolygonNetwork(state, polygon.id);
+  assert.equal(network.pointIds.size, 8);
+  assert.equal(network.polygons.length, 2);
+  assert.equal(network.segments.length, 2);
+  assert.equal(network.pivot, a);
+  const result = transformPolygonNetwork(state, polygon.id, { type: "rotate", degrees: 90 });
+  assert.equal(result.changed, true);
+  assert.deepEqual({ x: h.x, y: h.y }, { x: -8, y: 12 });
+  assert.deepEqual({ x: c.x, y: c.y }, { x: -4, y: 4 });
+  assert.deepEqual(polygon.labelOffset, { x: -2, y: 1 });
+  assert.deepEqual(second.labelOffset, { x: -2, y: -3 });
+  assert.deepEqual(polygon.edgeStyles, before.polygons[0].edgeStyles);
+  assert.deepEqual(polygon.pointIds, before.polygons[0].pointIds);
+  assert.deepEqual(segment, before.segments[0]);
+  assert.deepEqual(state.angleAnnotations, before.angleAnnotations);
+  assert.deepEqual(state.backgroundImage, before.backgroundImage);
+  assert.deepEqual(text, before.texts[0]);
+  assert.deepEqual(isolated, before.points.at(-1));
+});
+
+test("network moves retain precision and mirrors use the initiating first vertex", () => {
+  const { state, a, b, polygon } = squareState();
+  transformPolygonNetwork(state, polygon.id, { type: "move", dx: 2.12345, dy: 3.45678 });
+  assert.equal(a.x, 2.12345);
+  assert.equal(a.y, 3.45678);
+  const pivot = { x: a.x, y: a.y };
+  transformPolygonNetwork(state, polygon.id, { type: "mirror", axis: "horizontal" });
+  assert.ok(Math.abs(b.x - (pivot.x - 4)) < 1e-10);
+  assert.deepEqual({ x: a.x, y: a.y }, pivot);
+});
+
+test("network lock validation is atomic and permits a stationary locked pivot", () => {
+  const { state, a, b, polygon } = squareState();
+  addPointLockConstraint(state, a.id);
+  assert.equal(transformPolygonNetwork(state, polygon.id, { type: "rotate", degrees: 90 }).changed, true);
+  addPointLockConstraint(state, b.id);
+  const before = structuredClone(serializeCoreState(state));
+  assert.throws(() => transformPolygonNetwork(state, polygon.id, { type: "move", dx: 0.00001, dy: 0 }),
+    /Unlock/);
+  assert.deepEqual(serializeCoreState(state), before);
+  assert.equal(transformPolygonNetwork(state, polygon.id, { type: "rotate", degrees: 360 }).changed, false);
+});
+
+test("network transformations reject missing data and invalid operations without mutation", () => {
+  const { state, polygon } = squareState();
+  const before = structuredClone(serializeCoreState(state));
+  assert.throws(() => getPolygonNetwork(state, 999), /no longer exists/);
+  assert.throws(() => transformPolygonNetwork(state, polygon.id, { type: "move", dx: NaN, dy: 0 }));
+  assert.deepEqual(serializeCoreState(state), before);
+  polygon.pointIds.push(999);
+  assert.throws(() => getPolygonNetwork(state, polygon.id), /missing points/);
+});
+
+test("polygon-only rotation uses the selected pivot and detaches shared vertices at full precision", () => {
+  const { state, a, b, c, d, polygon } = squareState();
+  const e = addPoint(state, 8, 4);
+  const f = addPoint(state, 8, 8);
+  const other = addPolygon(state, [c.id, e.id, f.id]);
+  const segment = addSegment(state, a.id, e.id);
+  const otherBefore = structuredClone(other);
+  const segmentBefore = structuredClone(segment);
+  addPointLockConstraint(state, b.id);
+  const degrees = 12.34567;
+  const result = rotatePolygon(state, polygon.id, b.id, degrees);
+  assert.equal(result.changed, true);
+  assert.equal(polygon.pointIds[1], b.id);
+  assert.notEqual(polygon.pointIds[0], a.id);
+  assert.notEqual(polygon.pointIds[2], c.id);
+  assert.equal(polygon.pointIds[3], d.id);
+  assert.deepEqual({ x: a.x, y: a.y }, { x: 0, y: 0 });
+  assert.deepEqual({ x: c.x, y: c.y }, { x: 4, y: 4 });
+  const rotatedA = getPointById(state, polygon.pointIds[0]);
+  const radians = degrees * Math.PI / 180;
+  assert.ok(Math.abs(rotatedA.x - (4 - 4 * Math.cos(radians))) < 1e-12);
+  assert.ok(Math.abs(rotatedA.y - (-4 * Math.sin(radians))) < 1e-12);
+  assert.deepEqual(other, otherBefore);
+  assert.deepEqual(segment, segmentBefore);
+});
+
+test("polygon-only rotation supports external pivots and rejects locks or invalid input atomically", () => {
+  const { state, a, polygon } = squareState();
+  const external = addPoint(state, 10, 20);
+  assert.equal(rotatePolygon(state, polygon.id, external.id, 90).changed, true);
+  assert.deepEqual({ x: a.x, y: a.y }, { x: 30, y: 10 });
+  assert.deepEqual({ x: external.x, y: external.y }, { x: 10, y: 20 });
+  addPointLockConstraint(state, a.id);
+  const before = structuredClone(serializeCoreState(state));
+  assert.throws(() => rotatePolygon(state, polygon.id, external.id, 1), /Unlock/);
+  assert.throws(() => rotatePolygon(state, polygon.id, external.id, NaN), /finite/);
+  assert.throws(() => rotatePolygon(state, polygon.id, 999, 1), /Select one polygon/);
+  assert.equal(rotatePolygon(state, polygon.id, external.id, 360).changed, false);
+  assert.deepEqual(serializeCoreState(state), before);
+});
 
 test("createState returns a fresh, independent state each call", () => {
   const first = createState();

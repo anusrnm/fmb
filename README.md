@@ -35,6 +35,8 @@ bun run dev:bun
 - Side lengths creates one possible polygon with its first vertex at (0, 0), from 3 to 256 lengths entered in edge order. The longest side must be shorter than the sum of the others; coordinates retain full precision while labels are rounded.
 - Right-click a polygon and choose Edit Side Lengths to re-plot it; lengths are displayed to two decimal places (or two significant digits below 0.01). When the side count stays the same, unchanged sides retain their precision. Shared vertices are detached so other geometry is unchanged.
 - Deleting a polygon also deletes its vertices unless they are used by other geometry.
+- Right-click a polygon and choose Transform Shape to move by X/Y offset, rotate counterclockwise, or mirror horizontally (flip X) / vertically (flip Y). Rotation and mirroring use its first vertex as the pivot. The entire network connected through shared polygon vertices and segments transforms rigidly; disconnected geometry, free text, and background images stay unchanged. If any locked point would move, the operation is rejected without changes. Transformations preserve precision and support undo/redo.
+- For immediate rotation of only one polygon, select the polygon and Ctrl/Cmd-click one point as the pivot. Use R / the counterclockwise button or Q / the clockwise button above Zoom (+): 1 degree by default, 0.1 degree with Shift, or 0.01 degree with Alt (Alt takes precedence). No dialog is shown. Shared vertices are detached so other geometry stays unchanged; moving locked vertices is rejected.
 - Double-click on any segment or polygon edge inserts a new point on that edge.
 - Select mode supports click selection, Ctrl/Cmd additive selection, drag to move, and Delete/Backspace removal.
 - Graph workspace includes major/minor grid lines and smooth zoom/pan.
@@ -64,6 +66,8 @@ bun run dev:bun
 - Ctrl/Cmd + A: Select all
 - Delete / Backspace: Delete selection
 - Esc: Switch to Select mode
+- R / Q: Rotate selected polygon 1 degree counterclockwise / clockwise around the selected point
+- Shift + R or Q / Alt + R or Q: Rotate 0.1 degree / 0.01 degree (also supported with either Rotate button)
 - Arrow keys: Move selected objects in Select mode
 - Shift + Arrow: Coarse movement
 - Alt + Arrow: Fine movement (0.01)

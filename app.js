@@ -93,6 +93,7 @@ let contextMenuVertexPointId = null;
 let contextMenuTextId = null;
 let editingPolygonLengthsId = null;
 let editingPolygonLengths = [];
+let transformingPolygonId = null;
 let suppressGraphContextMenuOpen = false;
 let lastViewportAspect = 1;
 const perfCounters = {
@@ -3558,15 +3559,7 @@ function updateSelectedSegmentLineStyle(lineStyle) {
 }
 
 function pointIsUsedOutsidePolygon(pointId, polygonId) {
-  if (state.segments.some((segment) => segment.a === pointId || segment.b === pointId)) {
-    return true;
-  }
-
-  if (state.angleAnnotations.some((item) => item.vertexId === pointId || item.aId === pointId || item.bId === pointId)) {
-    return true;
-  }
-
-  return state.polygons.some((polygon) => polygon.id !== polygonId && polygon.pointIds.includes(pointId));
+  return core.pointIsUsedOutsidePolygon(state, pointId, polygonId);
 }
 
 function pointIsUsedOutsidePolygons(pointId, polygonIdSet) {
@@ -3733,6 +3726,95 @@ function drawShapeFromCoordinateInput() {
   render();
   ui.pointsDialog.close();
   setStatus(`Shape created from ${pointIds.length} coordinates.`, "success");
+}
+
+function updateTransformFields() {
+  ui.transformMoveFields.hidden = ui.transformOperation.value !== "move";
+  ui.transformRotateFields.hidden = ui.transformOperation.value !== "rotate";
+  ui.transformMirrorFields.hidden = ui.transformOperation.value !== "mirror";
+  ui.transformShapeError.hidden = true;
+}
+
+function openTransformDialog(polygonId) {
+  let network;
+  try {
+    network = core.getPolygonNetwork(state, polygonId);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Could not find the connected network.", "error");
+    return;
+  }
+  transformingPolygonId = polygonId;
+  ui.transformOperation.value = "move";
+  ui.transformDx.value = "0";
+  ui.transformDy.value = "0";
+  ui.transformDegrees.value = "0";
+  ui.transformAxis.value = "horizontal";
+  ui.transformShapeSummary.textContent =
+    `${network.pointIds.size} points, ${network.polygons.length} polygons, ${network.segments.length} segments. ` +
+    `First-vertex pivot: (${round2(network.pivot.x)}, ${round2(network.pivot.y)}).`;
+  updateTransformFields();
+  ui.transformShapeDialog.showModal();
+  ui.transformDx.focus();
+}
+
+function rotationStep(event) {
+  return event.altKey ? 0.01 : event.shiftKey ? 0.1 : 1;
+}
+
+function rotateSelectedPolygon(degrees) {
+  if (state.selection.polygons.size !== 1 || state.selection.points.size !== 1) {
+    setStatus("Select one polygon, then Ctrl/Cmd-click one point as the rotation pivot.", "warning");
+    return;
+  }
+  let result;
+  try {
+    result = core.rotatePolygon(state, [...state.selection.polygons][0], [...state.selection.points][0], degrees);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Could not rotate the polygon.", "error");
+    return;
+  }
+  if (!result.changed) {
+    setStatus("The rotation made no changes.");
+    return;
+  }
+  pushHistory("Rotate polygon around selected point");
+  render();
+  setStatus(`Polygon rotated ${degrees}deg around selected point.`, "success");
+}
+
+function applyShapeTransform() {
+  const readNumber = (input, name) => {
+    const value = Number(input.value);
+    if (input.value.trim() === "" || !Number.isFinite(value)) {
+      throw new Error(`Enter a finite ${name}.`);
+    }
+    return value;
+  };
+  let result;
+  let operation;
+  try {
+    const type = ui.transformOperation.value;
+    operation = type === "move"
+      ? { type, dx: readNumber(ui.transformDx, "X offset"), dy: readNumber(ui.transformDy, "Y offset") }
+      : type === "rotate"
+        ? { type, degrees: readNumber(ui.transformDegrees, "rotation angle") }
+        : { type, axis: ui.transformAxis.value };
+    result = core.transformPolygonNetwork(state, transformingPolygonId, operation);
+  } catch (error) {
+    ui.transformShapeError.textContent = error instanceof Error ? error.message : "Could not transform the shape.";
+    ui.transformShapeError.hidden = false;
+    return;
+  }
+  ui.transformShapeDialog.close();
+  if (!result.changed) {
+    setStatus("The transformation made no changes.");
+    return;
+  }
+  clearSelection();
+  state.selection.polygons.add(transformingPolygonId);
+  pushHistory(`Transform shape: ${operation.type}`);
+  render();
+  setStatus(`Transformed connected network (${result.network.pointIds.size} points).`, "success");
 }
 
 function openPolygonLengthsDialog(polygon = null) {
@@ -4202,7 +4284,7 @@ function isEditingTextInput(target) {
 }
 
 async function handleKeyDown(event) {
-  if (ui.polygonLengthsDialog.open) {
+  if (ui.polygonLengthsDialog.open || ui.transformShapeDialog.open) {
     return;
   }
   if (ui.pointsDialog.open && event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
@@ -4215,6 +4297,13 @@ async function handleKeyDown(event) {
   }
 
   if (isEditingTextInput(event.target)) {
+    return;
+  }
+
+  if (["r", "q"].includes(event.key.toLowerCase()) && !event.ctrlKey && !event.metaKey &&
+      !ui.pointsDialog.open && !ui.helpDialog.open && !ui.numericInputDialog.open) {
+    event.preventDefault();
+    rotateSelectedPolygon(rotationStep(event) * (event.key.toLowerCase() === "q" ? -1 : 1));
     return;
   }
 
@@ -4510,6 +4599,8 @@ function wireEvents() {
   addTrackedEvent(ui.undoBtn, "click", undo);
   addTrackedEvent(ui.redoBtn, "click", redo);
   addTrackedEvent(ui.zoomInBtn, "click", () => zoomBy(1.15));
+  addTrackedEvent(ui.rotatePointBtn, "click", (event) => rotateSelectedPolygon(rotationStep(event)));
+  addTrackedEvent(ui.rotateClockwiseBtn, "click", (event) => rotateSelectedPolygon(-rotationStep(event)));
   addTrackedEvent(ui.zoomOutBtn, "click", () => zoomBy(1 / 1.15));
   addTrackedEvent(ui.zoomResetBtn, "click", resetZoomAndPan);
   addTrackedEvent(ui.fitDrawingBtn, "click", () => fitViewport(false));
@@ -4525,6 +4616,12 @@ function wireEvents() {
     openPolygonLengthsDialog();
   });
   addTrackedEvent(ui.polygonLengthsCancel, "click", () => ui.polygonLengthsDialog.close());
+  addTrackedEvent(ui.transformShapeCancel, "click", () => ui.transformShapeDialog.close());
+  addTrackedEvent(ui.transformOperation, "change", updateTransformFields);
+  addTrackedEvent(ui.transformShapeForm, "submit", (event) => {
+    event.preventDefault();
+    applyShapeTransform();
+  });
   addTrackedEvent(ui.polygonLengthsForm, "submit", (event) => {
     event.preventDefault();
     drawPolygonFromLengths();
@@ -4755,6 +4852,7 @@ function wireEvents() {
     ui.editTextBtn.hidden = !hitText;
     ui.editPolygonLengthsBtn.hidden = !hitPolygon || state.selection.polygons.size !== 1 ||
       !state.selection.polygons.has(hitPolygon.id);
+    ui.transformShapeBtn.hidden = ui.editPolygonLengthsBtn.hidden;
     ui.insertPolygonVertexBtn.hidden = !polygonEdgePick;
     ui.removePolygonVertexBtn.hidden = !removablePolygon;
     const canRunPolygonBoolean = state.selection.polygons.size === 2;
@@ -4803,6 +4901,12 @@ function wireEvents() {
       return;
     }
     openPolygonLengthsDialog(polygon);
+  });
+
+  addTrackedEvent(ui.transformShapeBtn, "click", () => {
+    const polygonId = [...state.selection.polygons][0];
+    hideContextMenu();
+    openTransformDialog(polygonId);
   });
 
   addTrackedEvent(ui.insertPolygonVertexBtn, "click", () => {

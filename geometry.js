@@ -21,6 +21,48 @@ export function distanceScreen(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+export function transformPoint(point, pivot, operation) {
+  if (!point || !pivot || ![point.x, point.y, pivot.x, pivot.y].every(Number.isFinite)) {
+    throw new Error("Transformation coordinates must be finite numbers.");
+  }
+  let result;
+  if (operation?.type === "move") {
+    if (![operation.dx, operation.dy].every(Number.isFinite)) {
+      throw new Error("Enter finite X and Y offsets.");
+    }
+    result = { x: point.x + operation.dx, y: point.y + operation.dy };
+  } else if (operation?.type === "rotate") {
+    if (!Number.isFinite(operation.degrees)) {
+      throw new Error("Enter a finite rotation angle.");
+    }
+    const remainder = operation.degrees % 360;
+    const degrees = remainder < 0 ? remainder + 360 : remainder;
+    if (degrees === 0 || (point.x === pivot.x && point.y === pivot.y)) {
+      return { x: point.x, y: point.y };
+    }
+    const radians = degrees * Math.PI / 180;
+    // Exact quarter turns keep stationary points and axes free of trigonometric drift.
+    const cos = degrees === 90 || degrees === 270 ? 0 : degrees === 180 ? -1 : Math.cos(radians);
+    const sin = degrees === 180 ? 0 : degrees === 90 ? 1 : degrees === 270 ? -1 : Math.sin(radians);
+    const x = point.x - pivot.x;
+    const y = point.y - pivot.y;
+    result = { x: pivot.x + x * cos - y * sin, y: pivot.y + x * sin + y * cos };
+  } else if (operation?.type === "mirror") {
+    if (operation.axis !== "horizontal" && operation.axis !== "vertical") {
+      throw new Error("Choose horizontal or vertical mirroring.");
+    }
+    result = operation.axis === "horizontal"
+      ? { x: pivot.x + (pivot.x - point.x), y: point.y }
+      : { x: point.x, y: pivot.y + (pivot.y - point.y) };
+  } else {
+    throw new Error("Choose a valid transformation.");
+  }
+  if (![result.x, result.y].every(Number.isFinite)) {
+    throw new Error("The transformation exceeds the supported coordinate range.");
+  }
+  return result;
+}
+
 export function areaConversions(areaSqm) {
   const acres = areaSqm / 4046.8564224;
   return {

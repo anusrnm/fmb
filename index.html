@@ -123,6 +123,12 @@
         <section class="graph-panel" aria-label="Graph editor">
           <svg id="graph" viewBox="0 0 1600 900" role="img" aria-label="Interactive graph"></svg>
           <div class="zoom-controls" aria-label="Zoom controls">
+            <button id="rotate-point-btn" class="icon-btn" type="button" title="Rotate counterclockwise 1deg (R); Shift: 0.1deg; Alt: 0.01deg" aria-label="Rotate around selected point">
+              <span class="icon">↺</span>
+            </button>
+            <button id="rotate-clockwise-btn" class="icon-btn" type="button" title="Rotate clockwise 1deg (Q); Shift: 0.1deg; Alt: 0.01deg" aria-label="Rotate clockwise around selected point">
+              <span class="icon">↻</span>
+            </button>
             <button id="zoom-in-btn" class="icon-btn" type="button" title="Zoom in" aria-label="Zoom in">
               <span class="icon">+</span>
             </button>
@@ -264,12 +270,52 @@
       <button id="edit-text-btn" type="button">Edit Text</button>
       <button id="join-points-btn" type="button">Join Selected Points</button>
       <button id="edit-polygon-lengths-btn" type="button">Edit Side Lengths</button>
+      <button id="transform-shape-btn" type="button">Transform Shape</button>
       <button id="insert-polygon-vertex-btn" type="button">Insert Polygon Vertex</button>
       <button id="remove-polygon-vertex-btn" type="button">Remove Polygon Vertex</button>
       <button id="polygon-union-btn" type="button">Polygon Union</button>
       <button id="polygon-subtract-btn" type="button">Polygon Subtract</button>
       <button id="polygon-intersect-btn" type="button">Polygon Intersect</button>
     </div>
+
+    <dialog id="transform-shape-dialog" class="points-dialog transform-dialog" aria-labelledby="transform-shape-title">
+      <form id="transform-shape-form" novalidate>
+        <h3 id="transform-shape-title">Transform Shape</h3>
+        <p>The entire connected polygon/segment network moves together.</p>
+        <p id="transform-shape-summary"></p>
+        <label for="transform-operation">Operation</label>
+        <select id="transform-operation">
+          <option value="move">Move</option>
+          <option value="rotate">Rotate</option>
+          <option value="mirror">Mirror</option>
+        </select>
+        <fieldset id="transform-move-fields">
+          <legend>Move by offset</legend>
+          <label for="transform-dx">X offset</label>
+          <input id="transform-dx" type="number" step="any" value="0" />
+          <label for="transform-dy">Y offset</label>
+          <input id="transform-dy" type="number" step="any" value="0" />
+        </fieldset>
+        <fieldset id="transform-rotate-fields" hidden>
+          <legend>Rotate about pivot</legend>
+          <label for="transform-degrees">Angle (degrees, counterclockwise)</label>
+          <input id="transform-degrees" type="number" step="any" value="0" />
+        </fieldset>
+        <fieldset id="transform-mirror-fields" hidden>
+          <legend>Mirror about first vertex</legend>
+          <label for="transform-axis">Direction</label>
+          <select id="transform-axis">
+            <option value="horizontal">Horizontal (flip X)</option>
+            <option value="vertical">Vertical (flip Y)</option>
+          </select>
+        </fieldset>
+        <p id="transform-shape-error" class="coordinate-validation" data-tone="error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="transform-shape-cancel" type="button">Cancel</button>
+          <button type="submit">Apply transform</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="polygon-lengths-dialog" class="points-dialog">
       <form id="polygon-lengths-form" novalidate>
@@ -331,6 +377,8 @@
           <div><span>Zoom</span><kbd>+</kbd><kbd>-</kbd></div>
           <div><span>Fit drawing / selection</span><kbd>F</kbd><kbd>Shift</kbd>+<kbd>F</kbd></div>
           <div><span>Coordinates</span><kbd>C</kbd></div>
+          <div><span>Rotate 1deg counterclockwise / clockwise around selected point</span><kbd>R</kbd><kbd>Q</kbd></div>
+          <div><span>Fine rotation (R or Q): 0.1deg / 0.01deg</span><kbd>Shift</kbd><kbd>Alt</kbd></div>
           <div><span>Insert point on hovered edge</span><kbd>I</kbd></div>
           <div><span>Insert polygon vertex on hovered edge (with shape selected)</span><kbd>Ctrl</kbd>+<kbd>Click</kbd></div>
           <div><span>Select a polygon edge to style it</span><kbd>Ctrl</kbd>+<kbd>Click</kbd></div>

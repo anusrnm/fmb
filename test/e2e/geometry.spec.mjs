@@ -5,6 +5,231 @@ test.beforeEach(async ({ page }) => {
   await gotoEditor(page);
 });
 
+async function importTransformNetwork(page, lockedPointId = null) {
+  const data = {
+    nextId: 17, scale: 32, panX: 0, panY: 0,
+    points: [
+      { id: 1, x: 2, y: 3 }, { id: 2, x: 6, y: 3 },
+      { id: 3, x: 6, y: 7 }, { id: 4, x: 2, y: 7 },
+      { id: 5, x: 10, y: 7 }, { id: 6, x: 10, y: 11 },
+      { id: 7, x: 12, y: 11 }, { id: 8, x: 14, y: 11 },
+      { id: 9, x: 2, y: 3 },
+    ],
+    polygons: [
+      { id: 10, pointIds: [1, 2, 3, 4], labelOffset: { x: 1, y: 2 }, edgeStyles: { 1: "dashed" } },
+      { id: 11, pointIds: [3, 5, 6], labelOffset: { x: 0, y: 0 }, edgeStyles: {} },
+    ],
+    segments: [
+      { id: 12, a: 6, b: 7, kind: "parallel", lineStyle: "dotted" },
+      { id: 13, a: 7, b: 8, kind: "segment", lineStyle: "solid" },
+    ],
+    texts: [{ id: 14, x: -8, y: -5, content: "Not attached", size: 16 }],
+    angleAnnotations: [{ id: 15, vertexId: 2, aId: 1, bId: 3 }],
+    constraints: lockedPointId === null ? [] : [{ id: 16, type: "point-lock", pointId: lockedPointId }],
+  };
+  await page.locator("#import-file").setInputFiles({
+    name: "transform-network.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ data })),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+  return data;
+}
+
+async function openNetworkTransform(page) {
+  const box = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({
+    button: "right",
+    position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
+  });
+  await page.getByRole("button", { name: "Transform Shape", exact: true }).click();
+  await expect(page.locator("#transform-shape-dialog")).toBeVisible();
+}
+
+async function selectPolygonRotationPivot(page) {
+  const box = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({
+    button: "right",
+    position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
+  });
+  await page.keyboard.press("Escape");
+  await page.locator("#graph").click({
+    modifiers: ["Control"],
+    position: { x: box.width / 2 + 6 * 32, y: box.height / 2 - 7 * 32 },
+  });
+}
+
+test("precise rotation shortcut rotates only the selected polygon about its selected point", async ({ page }) => {
+  const before = await importTransformNetwork(page, 3);
+  await selectPolygonRotationPivot(page);
+  let degrees = 0;
+  let after;
+  const rotations = [["r", 1], ["Shift+r", 0.1], ["Alt+r", 0.01],
+    ["q", -1], ["Shift+q", -0.1], ["Alt+q", -0.01]];
+  for (const [shortcut, step] of rotations) {
+    await page.keyboard.press(shortcut);
+    await expect(page.getByRole("status")).toContainText(`Polygon rotated ${step}deg`);
+    await expect(page.locator("#transform-shape-dialog")).toBeHidden();
+    degrees += step;
+    after = await exportDiagram(page);
+    const rotated = after.points.find((point) => point.id === after.polygons[0].pointIds[3]);
+    const radians = degrees * Math.PI / 180;
+    expect(rotated.x).toBeCloseTo(6 - 4 * Math.cos(radians), 9);
+    expect(rotated.y).toBeCloseTo(7 - 4 * Math.sin(radians), 9);
+  }
+  const polygon = after.polygons.find((shape) => shape.id === 10);
+  const radians = degrees * Math.PI / 180;
+  polygon.pointIds.forEach((id, index) => {
+    const point = after.points.find((entry) => entry.id === id);
+    const original = before.points[index];
+    const x = original.x - 6;
+    const y = original.y - 7;
+    expect(point.x).toBeCloseTo(6 + x * Math.cos(radians) - y * Math.sin(radians), 9);
+    expect(point.y).toBeCloseTo(7 + x * Math.sin(radians) + y * Math.cos(radians), 9);
+  });
+  expect(polygon.pointIds[2]).toBe(3);
+  expect(after.polygons[1]).toEqual(before.polygons[1]);
+  expect(after.segments).toEqual(before.segments);
+  expect(after.points.slice(4, 9)).toEqual(before.points.slice(4, 9));
+  expect(after.angleAnnotations).toEqual(before.angleAnnotations);
+  for (let index = 0; index < rotations.length; index += 1) await page.locator("#undo-btn").click();
+  const undone = await exportDiagram(page);
+  expect(undone.points).toEqual(before.points);
+  expect(undone.polygons).toEqual(before.polygons);
+  for (let index = 0; index < rotations.length; index += 1) await page.locator("#redo-btn").click();
+  expect((await exportDiagram(page)).points).toEqual(after.points);
+});
+
+test("precise rotation button is above zoom and validates selection and locked vertices", async ({ page }) => {
+  await page.getByRole("button", { name: "Rotate around selected point", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Select one polygon");
+  await expect(page.locator("#transform-shape-dialog")).toBeHidden();
+  const rotateBox = await page.locator("#rotate-point-btn").boundingBox();
+  const zoomBox = await page.locator("#zoom-in-btn").boundingBox();
+  expect(rotateBox.y + rotateBox.height).toBeLessThanOrEqual(zoomBox.y);
+  const before = await importTransformNetwork(page, 4);
+  await selectPolygonRotationPivot(page);
+  await page.getByRole("button", { name: "Rotate around selected point", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Unlock the polygon");
+  await expect(page.locator("#transform-shape-dialog")).toBeHidden();
+  expect((await exportDiagram(page)).points).toEqual(before.points);
+  await importTransformNetwork(page, 3);
+  await selectPolygonRotationPivot(page);
+  let degrees = 0;
+  for (const [modifiers, step] of [[[], 1], [["Shift"], 0.1], [["Alt"], 0.01],
+    [[], -1], [["Shift"], -0.1], [["Alt"], -0.01]]) {
+    const name = step < 0 ? "Rotate clockwise around selected point" : "Rotate around selected point";
+    await page.getByRole("button", { name, exact: true }).click({ modifiers });
+    await expect(page.getByRole("status")).toContainText(`Polygon rotated ${step}deg`);
+    await expect(page.locator("#transform-shape-dialog")).toBeHidden();
+    degrees += step;
+    const data = await exportDiagram(page);
+    const rotated = data.points.find((point) => point.id === data.polygons[0].pointIds[3]);
+    expect(rotated.x).toBeCloseTo(6 - 4 * Math.cos(degrees * Math.PI / 180), 9);
+    expect(rotated.y).toBeCloseTo(7 - 4 * Math.sin(degrees * Math.PI / 180), 9);
+  }
+  await openNetworkTransform(page);
+  await expect(page.getByLabel("Operation", { exact: true })).toBeVisible();
+  await expect(page.locator("#transform-shape-summary")).toContainText("First-vertex pivot:");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+});
+
+test("transform shape moves the connected network with undo, redo and persistence", async ({ page }) => {
+  const before = await importTransformNetwork(page);
+  await openNetworkTransform(page);
+  await expect(page.locator("#transform-shape-summary")).toContainText("8 points, 2 polygons, 2 segments");
+  await expect(page.locator("#transform-shape-summary")).toContainText("(2, 3)");
+  await page.getByLabel("X offset", { exact: true }).fill("1.23456");
+  await page.getByLabel("Y offset", { exact: true }).fill("-2.34567");
+  await page.getByRole("button", { name: "Apply transform" }).click();
+  await expect(page.getByRole("status")).toContainText("Transformed connected network (8 points)");
+  const after = await exportDiagram(page);
+  after.points.forEach((point, index) => {
+    const original = before.points[index];
+    expect(point.x).toBeCloseTo(original.x + (point.id === 9 ? 0 : 1.23456), 8);
+    expect(point.y).toBeCloseTo(original.y + (point.id === 9 ? 0 : -2.34567), 8);
+  });
+  expect(after.polygons).toEqual(before.polygons);
+  expect(after.segments).toEqual(before.segments);
+  expect(after.angleAnnotations).toEqual(before.angleAnnotations);
+  expect(after.texts).toEqual(before.texts);
+  expect(after.scale).toBe(before.scale);
+  expect(after.panX).toBe(before.panX);
+  expect(after.panY).toBe(before.panY);
+  await page.locator("#undo-btn").click();
+  expect((await exportDiagram(page)).points).toEqual(before.points);
+  await page.locator("#redo-btn").click();
+  expect((await exportDiagram(page)).points).toEqual(after.points);
+  await page.reload();
+  expect((await exportDiagram(page)).points).toEqual(after.points);
+});
+
+test("transform shape rotates and mirrors around a stationary locked first vertex", async ({ page }) => {
+  for (const operation of ["rotate", "horizontal", "vertical"]) {
+    const before = await importTransformNetwork(page, 1);
+    await openNetworkTransform(page);
+    await page.getByLabel("Operation", { exact: true }).selectOption(operation === "rotate" ? "rotate" : "mirror");
+    if (operation === "rotate") {
+      await page.getByLabel("Angle (degrees, counterclockwise)").fill("90");
+    } else {
+      await page.getByLabel("Direction", { exact: true }).selectOption(operation);
+    }
+    await page.getByRole("button", { name: "Apply transform" }).click();
+    await expect(page.getByRole("status")).toContainText("Transformed connected network");
+    const after = await exportDiagram(page);
+    after.points.forEach((point, index) => {
+      const original = before.points[index];
+      const x = original.x - 2;
+      const y = original.y - 3;
+      const expected = point.id === 9 ? original : operation === "rotate"
+        ? { x: 2 - y, y: 3 + x }
+        : operation === "horizontal" ? { x: 2 - x, y: original.y } : { x: original.x, y: 3 - y };
+      expect(point.x).toBeCloseTo(expected.x, 8);
+      expect(point.y).toBeCloseTo(expected.y, 8);
+    });
+    expect(after.constraints).toEqual(before.constraints);
+    expect(after.polygons[0].labelOffset).toEqual(operation === "rotate"
+      ? { x: -2, y: 1 } : operation === "horizontal" ? { x: -1, y: 2 } : { x: 1, y: -2 });
+  }
+});
+
+test("transform shape rejects invalid input and locked connected points atomically", async ({ page }) => {
+  const before = await importTransformNetwork(page, 8);
+  await openNetworkTransform(page);
+  await page.getByLabel("X offset", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Apply transform" }).click();
+  await expect(page.getByRole("alert")).toContainText("finite X offset");
+  await page.getByLabel("X offset", { exact: true }).fill("2");
+  await page.getByRole("button", { name: "Apply transform" }).click();
+  await expect(page.getByRole("alert")).toContainText("Unlock");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const after = await exportDiagram(page);
+  expect(after.points).toEqual(before.points);
+  expect(after.polygons).toEqual(before.polygons);
+  expect(after.constraints).toEqual(before.constraints);
+});
+
+test("transform shape cancel, Escape and identity operations leave drawing and history unchanged", async ({ page }) => {
+  const before = await importTransformNetwork(page);
+  const undoTitle = await page.locator("#undo-btn").getAttribute("title");
+  await openNetworkTransform(page);
+  await page.getByLabel("X offset", { exact: true }).fill("2");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await openNetworkTransform(page);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#transform-shape-dialog")).toBeHidden();
+  await openNetworkTransform(page);
+  await page.getByLabel("Operation", { exact: true }).selectOption("rotate");
+  await page.getByLabel("Angle (degrees, counterclockwise)").fill("360");
+  await page.getByRole("button", { name: "Apply transform" }).focus();
+  await page.keyboard.press("3");
+  await expect(page.getByLabel("Select tools")).toHaveValue("select");
+  await page.getByRole("button", { name: "Apply transform" }).click();
+  await expect(page.getByRole("status")).toContainText("made no changes");
+  await expect(page.locator("#undo-btn")).toHaveAttribute("title", undoTitle);
+  expect((await exportDiagram(page)).points).toEqual(before.points);
+});
+
 test("draws a polygon from ordered side lengths and supports undo and redo", async ({ page }) => {
   const before = await exportDiagram(page);
   await page.getByTitle("Plot by side lengths").click();

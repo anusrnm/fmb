@@ -16,7 +16,56 @@ import {
   round2,
   round3,
   triangleAreaFromSides,
+  transformPoint,
 } from "../../geometry.js";
+
+test("transformPoint moves, rotates and mirrors about a non-origin pivot", () => {
+  const pivot = { x: 2, y: 3 };
+  const point = { x: 6, y: 5 };
+  assert.deepEqual(transformPoint(point, pivot, { type: "move", dx: 0.12345, dy: -2 }),
+    { x: 6.12345, y: 3 });
+  assert.deepEqual(transformPoint(point, pivot, { type: "rotate", degrees: 90 }), { x: 0, y: 7 });
+  assert.deepEqual(transformPoint(point, pivot, { type: "rotate", degrees: -90 }), { x: 4, y: -1 });
+  assert.deepEqual(transformPoint(point, pivot, { type: "rotate", degrees: 180 }), { x: -2, y: 1 });
+  assert.deepEqual(transformPoint(point, pivot, { type: "rotate", degrees: 720 }), point);
+  assert.deepEqual(transformPoint(pivot, pivot, { type: "rotate", degrees: 37 }), pivot);
+  assert.deepEqual(transformPoint(point, pivot, { type: "mirror", axis: "horizontal" }), { x: -2, y: 5 });
+  assert.deepEqual(transformPoint(point, pivot, { type: "mirror", axis: "vertical" }), { x: 6, y: 1 });
+});
+
+test("rigid transformations preserve side lengths and area magnitude", () => {
+  const points = [{ x: 2, y: 3 }, { x: 5.12345, y: 3 }, { x: 5.12345, y: 7.23456 }];
+  const area = (vertices) => Math.abs(vertices.reduce((sum, point, index) => {
+    const next = vertices[(index + 1) % vertices.length];
+    return sum + point.x * next.y - point.y * next.x;
+  }, 0)) / 2;
+  for (const operation of [
+    { type: "rotate", degrees: 37 },
+    { type: "move", dx: 8.12345, dy: -7.54321 },
+    { type: "mirror", axis: "horizontal" },
+    { type: "mirror", axis: "vertical" },
+  ]) {
+    const transformed = points.map((point) => transformPoint(point, points[0], operation));
+    assert.ok(Math.abs(area(transformed) - area(points)) < 1e-10);
+    points.forEach((point, index) => {
+      const next = (index + 1) % points.length;
+      assert.ok(Math.abs(distanceWorld(point, points[next]) -
+        distanceWorld(transformed[index], transformed[next])) < 1e-10);
+    });
+  }
+});
+
+test("transformPoint rejects invalid inputs and overflowing output", () => {
+  const point = { x: 1, y: 2 };
+  for (const operation of [
+    null, { type: "scale" }, { type: "move", dx: NaN, dy: 1 },
+    { type: "rotate", degrees: Infinity }, { type: "mirror", axis: "diagonal" },
+  ]) {
+    assert.throws(() => transformPoint(point, point, operation));
+  }
+  assert.throws(() => transformPoint({ x: Infinity, y: 2 }, point, { type: "rotate", degrees: 0 }));
+  assert.throws(() => transformPoint({ x: 1e308, y: 0 }, point, { type: "move", dx: 1e308, dy: 0 }));
+});
 
 test("clamp constrains a value to the inclusive range", () => {
   assert.equal(clamp(5, 0, 10), 5);
