@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   angleCandidateKey,
   areaConversions,
+  areaToSquareMeters,
+  adjustPolygonPointsToArea,
   decomposeArea,
   calculateInteriorAngles,
   calculatePerimeter,
@@ -16,6 +18,7 @@ import {
   projectPointToSegment,
   round2,
   round3,
+  scalePolygonPointsToArea,
   triangleAreaFromSides,
   transformPoint,
 } from "../../geometry.js";
@@ -96,6 +99,56 @@ test("areaConversions converts square metres to all supported units", () => {
   assert.ok(Math.abs(result.sqft - 107639.1041671) < 1e-3);
   assert.ok(Math.abs(result.plots - 44.8496267363) < 1e-6);
   assert.ok(Math.abs(result.pits - 747.4937789382) < 1e-6);
+});
+
+test("area units convert to square metres", () => {
+  assert.equal(areaToSquareMeters(10, "sqm"), 10);
+  assert.ok(Math.abs(areaToSquareMeters(107.6391041671, "sqft") - 10) < 1e-10);
+  assert.ok(Math.abs(areaToSquareMeters(0.24710538147, "cents") - 10) < 1e-9);
+  assert.throws(() => areaToSquareMeters(0, "sqm"));
+  assert.throws(() => areaToSquareMeters(1, "acres"));
+});
+
+test("scalePolygonPointsToArea resizes around the polygon centroid", () => {
+  const rectangle = [
+    { x: 2, y: 3 },
+    { x: 6, y: 3 },
+    { x: 6, y: 5 },
+    { x: 2, y: 5 },
+  ];
+  const resized = scalePolygonPointsToArea(rectangle, 32);
+  assert.deepEqual(resized, [
+    { x: 0, y: 2 },
+    { x: 8, y: 2 },
+    { x: 8, y: 6 },
+    { x: 0, y: 6 },
+  ]);
+  assert.deepEqual(rectangle[0], { x: 2, y: 3 });
+  assert.throws(() => scalePolygonPointsToArea(rectangle, 0));
+  assert.throws(() => scalePolygonPointsToArea([{ x: 0, y: 0 }, { x: 1, y: 1 }], 2));
+  assert.throws(() => scalePolygonPointsToArea([
+    { x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 },
+  ], 2));
+});
+
+test("adjustPolygonPointsToArea moves only chosen vertices to the target area", () => {
+  const rectangle = [
+    { x: 2, y: 3 },
+    { x: 6, y: 3 },
+    { x: 6, y: 5 },
+    { x: 2, y: 5 },
+  ];
+  const adjusted = adjustPolygonPointsToArea(rectangle, 12, [2]);
+  assert.deepEqual(adjusted[0], rectangle[0]);
+  assert.deepEqual(adjusted[1], rectangle[1]);
+  assert.deepEqual(adjusted[3], rectangle[3]);
+  const area = Math.abs(adjusted.reduce((sum, point, index) => {
+    const next = adjusted[(index + 1) % adjusted.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0)) / 2;
+  assert.ok(Math.abs(area - 12) < 1e-8);
+  assert.throws(() => adjustPolygonPointsToArea(rectangle, 2, [2]));
+  assert.throws(() => adjustPolygonPointsToArea(rectangle, 12, []));
 });
 
 test("decomposeArea splits hectares, ares and square metres with rounding carry", () => {

@@ -106,6 +106,74 @@ test("shape details sum individual areas and perimeters for overlapping selectio
   await expect(page.locator("#shape-details")).toBeHidden();
 });
 
+test("sets a shape area from the right-click dialog in supported units", async ({ page }) => {
+  const original = {
+    nextId: 6, scale: 32, panX: 0, panY: 0,
+    points: [
+      { id: 1, x: 2, y: 3 }, { id: 2, x: 6, y: 3 },
+      { id: 3, x: 6, y: 7 }, { id: 4, x: 2, y: 7 },
+    ],
+    segments: [],
+    polygons: [{ id: 5, pointIds: [1, 2, 3, 4] }],
+    texts: [], angleAnnotations: [], constraints: [],
+  };
+  await page.locator("#import-file").setInputFiles({
+    name: "area-target.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ data: original })),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+
+  const graphBox = await page.locator("#graph").boundingBox();
+  const openAreaDialog = async () => {
+    await page.locator("#graph").click({
+      button: "right",
+      position: { x: graphBox.width / 2 + 4 * 32, y: graphBox.height / 2 - 5 * 32 },
+    });
+    await page.getByRole("button", { name: "Set Shape Area", exact: true }).click();
+    await expect(page.locator("#shape-area-dialog")).toBeVisible();
+  };
+
+  await openAreaDialog();
+  const target = page.getByLabel("Target area", { exact: true });
+  const unit = page.getByLabel("Unit", { exact: true });
+  await expect(target).toHaveValue("16");
+  await unit.selectOption("sqft");
+  await expect(target).toHaveValue("172.22");
+  await unit.selectOption("cents");
+  await expect(target).toHaveValue("0.395");
+  await unit.selectOption("sqm");
+  await target.fill("64");
+  await page.getByRole("button", { name: "Apply area" }).click();
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 64 sqm");
+
+  const scaled = await exportDiagram(page);
+  const scaledPoints = scaled.points.filter((point) => point.id <= 4);
+  expect(scaledPoints.map(({ x, y }) => [x, y])).toEqual([[0, 1], [8, 1], [8, 9], [0, 9]]);
+  await page.locator("#undo-btn").click();
+
+  await openAreaDialog();
+  await page.getByLabel("Update method").selectOption("vertices");
+  await page.locator("#shape-area-vertices input[data-point-id='3']").check();
+  await target.fill("4");
+  await expect(page.locator("#shape-area-status")).toContainText("cannot reach");
+  await expect(page.getByRole("button", { name: "Apply area" })).toBeDisabled();
+  await target.fill("24");
+  await expect(page.locator("#shape-area-status")).toContainText("Target is reachable");
+  await page.getByRole("button", { name: "Apply area" }).click();
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 24 sqm");
+
+  const adjusted = await exportDiagram(page);
+  const adjustedPoints = new Map(adjusted.points.map((point) => [point.id, point]));
+  for (const point of original.points.filter((point) => point.id !== 3)) {
+    expect(adjustedPoints.get(point.id)).toMatchObject({ x: point.x, y: point.y });
+  }
+  expect(adjustedPoints.get(3)).not.toMatchObject({ x: original.points[2].x, y: original.points[2].y });
+  await page.locator("#undo-btn").click();
+  const undone = await exportDiagram(page);
+  expect(undone.points.filter((point) => point.id <= 4)).toEqual(original.points);
+});
+
 test("length unit preference persists and labels lengths in feet", async ({ page }) => {
   await page.getByTitle("Settings").click();
   const feetToggle = page.getByLabel("Show lengths and coordinates in feet", { exact: true });

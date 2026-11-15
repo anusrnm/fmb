@@ -5,7 +5,10 @@ import {
   distanceWorld,
   distanceScreen,
   areaConversions,
+  adjustPolygonPointsToArea,
+  areaToSquareMeters,
   decomposeArea,
+  scalePolygonPointsToArea,
   projectPointToSegment,
   distancePointToSegmentScreen,
   normalizeAngleRadians,
@@ -99,6 +102,9 @@ let editingPolygonLengthsId = null;
 let editingPolygonLengths = [];
 let transformingPolygonId = null;
 let choosingRotationPolygonId = null;
+let areaDialogPolygonId = null;
+let shapeAreaTargetSqm = null;
+let areaMovablePointIds = new Set();
 let suppressGraphContextMenuOpen = false;
 let lastViewportAspect = 1;
 const perfCounters = {
@@ -1925,6 +1931,177 @@ function updateVertexEditHint(polygon, canInsertVertex, canRemoveVertex) {
     return;
   }
   ui.vertexEditHint.textContent = "Vertex edit active: Ctrl+Click a polygon edge to insert, or select one vertex and press X.";
+}
+
+function areaValueForUnit(areaSqm, unit) {
+  const converted = areaConversions(areaSqm);
+  const value = converted[unit];
+  return unit === "cents" ? round3(value) : round2(value);
+}
+
+function formatAreaValue(value, unit) {
+  return String(unit === "cents" ? round3(value) : round2(value));
+}
+
+function setShapeAreaStatus(message, tone = "info") {
+  ui.shapeAreaStatus.textContent = message;
+  ui.shapeAreaStatus.dataset.tone = tone;
+}
+
+function populateShapeAreaVertices(polygon) {
+  const pointIndices = new Map(state.points.map((point, index) => [point.id, index + 1]));
+  ui.shapeAreaVertices.replaceChildren(...polygon.pointIds.map((pointId) => {
+    const point = getPointById(pointId);
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.pointId = String(pointId);
+    checkbox.checked = false;
+    checkbox.disabled = !point || core.isPointLocked(state, pointId);
+    const text = document.createElement("span");
+    text.textContent = `P${pointIndices.get(pointId) || pointId}`;
+    label.append(checkbox, text);
+    return label;
+  }));
+}
+
+function getShapeAreaAdjustment(polygon, targetAreaSqm, mode) {
+  const points = polygon.pointIds.map((pointId) => getPointById(pointId));
+  if (points.some((point) => !point)) {
+    throw new Error("The selected shape contains a missing vertex.");
+  }
+  if (mode === "center") {
+    if (polygon.pointIds.some((pointId) => core.isPointLocked(state, pointId))) {
+      throw new Error("Unlock all shape vertices before scaling around the center.");
+    }
+    return {
+      pointIds: polygon.pointIds,
+      points: scalePolygonPointsToArea(points, targetAreaSqm),
+    };
+  }
+
+  const movablePointIds = [...areaMovablePointIds];
+  if (movablePointIds.length === 0) {
+    throw new Error("Choose one or more vertices that may move.");
+  }
+  if (movablePointIds.some((pointId) => core.isPointLocked(state, pointId))) {
+    throw new Error("Unlock the chosen vertices before adjusting them.");
+  }
+  const movableIndices = polygon.pointIds
+    .map((pointId, index) => movablePointIds.includes(pointId) ? index : -1)
+    .filter((index) => index >= 0);
+  return {
+    pointIds: movablePointIds,
+    points: adjustPolygonPointsToArea(points, targetAreaSqm, movableIndices),
+  };
+}
+
+function updateShapeAreaDialog() {
+  const polygon = getPolygonById(areaDialogPolygonId);
+  if (!polygon || !ui.shapeAreaDialog.open) {
+    ui.shapeAreaApplyBtn.disabled = true;
+    return;
+  }
+  const area = polygonArea(polygon.pointIds);
+  const unit = ui.shapeAreaUnit.value;
+  const targetValue = ui.shapeAreaTarget.valueAsNumber;
+  const mode = ui.shapeAreaMode.value;
+  ui.shapeAreaVertexFields.hidden = mode !== "vertices";
+  ui.shapeAreaApplyBtn.textContent = "Apply area";
+  ui.shapeAreaApplyBtn.disabled = true;
+
+  if (!Number.isFinite(targetValue) || targetValue <= 0 || !Number.isFinite(shapeAreaTargetSqm)) {
+    setShapeAreaStatus("Enter a positive, finite target area.", "error");
+    return;
+  }
+  if (!Number.isFinite(area) || area <= 0) {
+    setShapeAreaStatus("A zero-area shape cannot be resized.", "error");
+    return;
+  }
+
+  try {
+    const adjustment = getShapeAreaAdjustment(polygon, shapeAreaTargetSqm, mode);
+    const unchanged = adjustment.points.every((point, index) =>
+      point.x === getPointById(polygon.pointIds[index]).x &&
+      point.y === getPointById(polygon.pointIds[index]).y
+    );
+    if (unchanged) {
+      setShapeAreaStatus("The shape already has the target area.", "success");
+    } else {
+      setShapeAreaStatus(
+        mode === "center"
+          ? `Target is reachable by scaling around the shape center. Current: ${areaValueForUnit(area, unit)} ${unit}.`
+          : `Target is reachable. Selected vertices will move automatically; other vertices stay fixed. Current: ${areaValueForUnit(area, unit)} ${unit}.`,
+        "success"
+      );
+      ui.shapeAreaApplyBtn.disabled = false;
+    }
+  } catch (error) {
+    setShapeAreaStatus(error instanceof Error ? error.message : "Could not calculate the area update.", "error");
+  }
+}
+
+function openShapeAreaDialog(polygonId) {
+  const polygon = getPolygonById(polygonId);
+  if (!polygon || state.selection.polygons.size !== 1 || !state.selection.polygons.has(polygon.id)) {
+    setStatus("Select one shape before setting its area.", "warning");
+    return;
+  }
+  areaDialogPolygonId = polygon.id;
+  const currentArea = polygonArea(polygon.pointIds);
+  shapeAreaTargetSqm = currentArea;
+  areaMovablePointIds = new Set();
+  ui.shapeAreaUnit.value = "sqm";
+  ui.shapeAreaTarget.value = formatAreaValue(currentArea, "sqm");
+  shapeAreaTargetSqm = ui.shapeAreaTarget.valueAsNumber;
+  ui.shapeAreaMode.value = "center";
+  populateShapeAreaVertices(polygon);
+  ui.shapeAreaDialog.showModal();
+  updateShapeAreaDialog();
+  ui.shapeAreaTarget.focus();
+  ui.shapeAreaTarget.select();
+}
+
+function clearShapeAreaDialogState() {
+  areaDialogPolygonId = null;
+  shapeAreaTargetSqm = null;
+  areaMovablePointIds.clear();
+  ui.shapeAreaVertices.replaceChildren();
+}
+
+function applyShapeAreaDialog(event) {
+  event.preventDefault();
+  const polygon = getPolygonById(areaDialogPolygonId);
+  if (!polygon) {
+    setShapeAreaStatus("The selected shape no longer exists.", "error");
+    return;
+  }
+  const unit = ui.shapeAreaUnit.value;
+  const targetValue = ui.shapeAreaTarget.valueAsNumber;
+  try {
+    if (!Number.isFinite(shapeAreaTargetSqm)) {
+      throw new Error("Enter a positive, finite target area.");
+    }
+    const adjustment = getShapeAreaAdjustment(polygon, shapeAreaTargetSqm, ui.shapeAreaMode.value);
+    const adjustedById = new Map(
+      polygon.pointIds.map((pointId, index) => [pointId, adjustment.points[index]])
+    );
+    for (const pointId of adjustment.pointIds) {
+      const point = getPointById(pointId);
+      const position = adjustedById.get(pointId);
+      if (point && position) {
+        point.x = position.x;
+        point.y = position.y;
+      }
+    }
+    pushHistory("Set shape area");
+    ui.shapeAreaDialog.close();
+    clearShapeAreaDialogState();
+    render();
+    setStatus(`Shape area updated to ${formatAreaValue(targetValue, unit)} ${unit}.`, "success");
+  } catch (error) {
+    setShapeAreaStatus(error instanceof Error ? error.message : "Could not update the shape area.", "error");
+  }
 }
 
 function updateShapeDetails() {
@@ -4671,6 +4848,41 @@ function wireEvents() {
   });
   addTrackedEvent(ui.polygonLengthsCancel, "click", () => ui.polygonLengthsDialog.close());
   addTrackedEvent(ui.transformShapeCancel, "click", () => ui.transformShapeDialog.close());
+  addTrackedEvent(ui.shapeAreaCancelBtn, "click", () => ui.shapeAreaDialog.close());
+  addTrackedEvent(ui.shapeAreaTarget, "input", () => {
+    const targetValue = ui.shapeAreaTarget.valueAsNumber;
+    try {
+      shapeAreaTargetSqm = Number.isFinite(targetValue) && targetValue > 0
+        ? areaToSquareMeters(targetValue, ui.shapeAreaUnit.value)
+        : null;
+    } catch {
+      shapeAreaTargetSqm = null;
+    }
+    updateShapeAreaDialog();
+  });
+  addTrackedEvent(ui.shapeAreaUnit, "change", (event) => {
+    const nextUnit = event.target.value;
+    if (Number.isFinite(shapeAreaTargetSqm) && shapeAreaTargetSqm > 0) {
+      ui.shapeAreaTarget.value = formatAreaValue(areaConversions(shapeAreaTargetSqm)[nextUnit], nextUnit);
+    }
+    updateShapeAreaDialog();
+  });
+  addTrackedEvent(ui.shapeAreaMode, "change", updateShapeAreaDialog);
+  addTrackedEvent(ui.shapeAreaVertices, "change", (event) => {
+    const checkbox = event.target.closest("input[type='checkbox'][data-point-id]");
+    if (!checkbox) {
+      return;
+    }
+    const pointId = Number(checkbox.dataset.pointId);
+    if (checkbox.checked) {
+      areaMovablePointIds.add(pointId);
+    } else {
+      areaMovablePointIds.delete(pointId);
+    }
+    updateShapeAreaDialog();
+  });
+  addTrackedEvent(ui.shapeAreaForm, "submit", applyShapeAreaDialog);
+  addTrackedEvent(ui.shapeAreaDialog, "close", clearShapeAreaDialogState);
   addTrackedEvent(ui.transformOperation, "change", updateTransformFields);
   addTrackedEvent(ui.transformShapeForm, "submit", (event) => {
     event.preventDefault();
@@ -4909,6 +5121,9 @@ function wireEvents() {
     contextMenuTextId = hitText ? hitText.id : null;
     ui.joinPointsBtn.hidden = state.selection.points.size < 2;
     ui.editTextBtn.hidden = !hitText;
+    ui.setShapeAreaBtn.hidden = !hitPolygon ||
+      state.selection.polygons.size !== 1 ||
+      !state.selection.polygons.has(hitPolygon.id);
     ui.editPolygonLengthsBtn.hidden = !hitPolygon || state.selection.polygons.size !== 1 ||
       !state.selection.polygons.has(hitPolygon.id);
     ui.transformShapeBtn.hidden = ui.editPolygonLengthsBtn.hidden;
@@ -4966,6 +5181,12 @@ function wireEvents() {
     const polygonId = [...state.selection.polygons][0];
     hideContextMenu();
     openTransformDialog(polygonId);
+  });
+
+  addTrackedEvent(ui.setShapeAreaBtn, "click", () => {
+    const polygonId = [...state.selection.polygons][0];
+    hideContextMenu();
+    openShapeAreaDialog(polygonId);
   });
 
   addTrackedEvent(ui.insertPolygonVertexBtn, "click", () => {

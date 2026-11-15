@@ -78,6 +78,159 @@ export function areaConversions(areaSqm) {
   };
 }
 
+export function areaToSquareMeters(area, unit) {
+  if (!Number.isFinite(area) || area <= 0) {
+    throw new Error("Area must be a positive, finite number.");
+  }
+  if (unit === "sqm") {
+    return area;
+  }
+  if (unit === "sqft") {
+    return area / 10.76391041671;
+  }
+  if (unit === "cents") {
+    return area * 4046.8564224 / 100;
+  }
+  throw new Error("Choose sqm, sqft, or cents.");
+}
+
+export function scalePolygonPointsToArea(points, targetAreaSqm) {
+  if (!Array.isArray(points) || points.length < 3 ||
+      !points.every((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y))) {
+    throw new Error("A shape needs at least three finite vertices.");
+  }
+  if (!Number.isFinite(targetAreaSqm) || targetAreaSqm <= 0) {
+    throw new Error("Area must be a positive, finite number.");
+  }
+
+  let twiceArea = 0;
+  let centroidXNumerator = 0;
+  let centroidYNumerator = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = current.x * next.y - next.x * current.y;
+    twiceArea += cross;
+    centroidXNumerator += (current.x + next.x) * cross;
+    centroidYNumerator += (current.y + next.y) * cross;
+  }
+  const currentArea = Math.abs(twiceArea) * 0.5;
+  if (!Number.isFinite(currentArea) || currentArea <= 0) {
+    throw new Error("A zero-area shape cannot be resized.");
+  }
+  const scale = Math.sqrt(targetAreaSqm / currentArea);
+  const centroid = {
+    x: centroidXNumerator / (3 * twiceArea),
+    y: centroidYNumerator / (3 * twiceArea),
+  };
+  if (!Number.isFinite(scale) || scale <= 0 ||
+      !Number.isFinite(centroid.x) || !Number.isFinite(centroid.y)) {
+    throw new Error("The requested area exceeds the supported coordinate range.");
+  }
+  return points.map((point) => {
+    const scaled = {
+      x: centroid.x + (point.x - centroid.x) * scale,
+      y: centroid.y + (point.y - centroid.y) * scale,
+    };
+    if (!Number.isFinite(scaled.x) || !Number.isFinite(scaled.y)) {
+      throw new Error("The requested area exceeds the supported coordinate range.");
+    }
+    return scaled;
+  });
+}
+
+export function adjustPolygonPointsToArea(points, targetAreaSqm, movableIndices) {
+  if (!Array.isArray(points) || points.length < 3 ||
+      !points.every((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y))) {
+    throw new Error("A shape needs at least three finite vertices.");
+  }
+  if (!Number.isFinite(targetAreaSqm) || targetAreaSqm <= 0) {
+    throw new Error("Area must be a positive, finite number.");
+  }
+  if (!Array.isArray(movableIndices) || movableIndices.length === 0 ||
+      !movableIndices.every((index) => Number.isInteger(index) && index >= 0 && index < points.length) ||
+      new Set(movableIndices).size !== movableIndices.length) {
+    throw new Error("Choose one or more valid vertices to move.");
+  }
+
+  const signedTwiceArea = (vertices) => vertices.reduce((sum, point, index) => {
+    const next = vertices[(index + 1) % vertices.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0);
+  const originalTwiceArea = signedTwiceArea(points);
+  if (!Number.isFinite(originalTwiceArea) || originalTwiceArea === 0) {
+    throw new Error("A zero-area shape cannot be adjusted.");
+  }
+
+  let centroidXNumerator = 0;
+  let centroidYNumerator = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = current.x * next.y - next.x * current.y;
+    centroidXNumerator += (current.x + next.x) * cross;
+    centroidYNumerator += (current.y + next.y) * cross;
+  }
+  const centroid = {
+    x: centroidXNumerator / (3 * originalTwiceArea),
+    y: centroidYNumerator / (3 * originalTwiceArea),
+  };
+  if (!Number.isFinite(centroid.x) || !Number.isFinite(centroid.y)) {
+    throw new Error("The shape center is invalid.");
+  }
+
+  const movable = new Set(movableIndices);
+  const pointsAtScale = (factor) => points.map((point, index) => {
+    if (!movable.has(index)) {
+      return point;
+    }
+    return {
+      x: centroid.x + (point.x - centroid.x) * factor,
+      y: centroid.y + (point.y - centroid.y) * factor,
+    };
+  });
+  const areaAtScaleZero = signedTwiceArea(pointsAtScale(0));
+  const areaAtScaleOne = originalTwiceArea;
+  const areaAtScaleTwo = signedTwiceArea(pointsAtScale(2));
+  const quadratic = (areaAtScaleTwo - 2 * areaAtScaleOne + areaAtScaleZero) * 0.5;
+  const linear = areaAtScaleOne - areaAtScaleZero - quadratic;
+  const targetSignedTwiceArea = Math.sign(originalTwiceArea) * targetAreaSqm * 2;
+  const constant = areaAtScaleZero - targetSignedTwiceArea;
+  const coefficientTolerance = Number.EPSILON *
+    Math.max(1, Math.abs(quadratic), Math.abs(linear), Math.abs(constant)) * 16;
+  let candidates = [];
+
+  if (Math.abs(quadratic) <= coefficientTolerance) {
+    if (Math.abs(linear) > coefficientTolerance) {
+      candidates = [-constant / linear];
+    }
+  } else {
+    const discriminant = linear * linear - 4 * quadratic * constant;
+    if (discriminant >= 0) {
+      const root = Math.sqrt(discriminant);
+      candidates = [
+        (-linear - root) / (2 * quadratic),
+        (-linear + root) / (2 * quadratic),
+      ];
+    }
+  }
+
+  const factor = candidates
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((left, right) => Math.abs(left - 1) - Math.abs(right - 1))[0];
+  if (factor === undefined) {
+    throw new Error("The selected vertices cannot reach that area while keeping the others fixed.");
+  }
+
+  const adjusted = pointsAtScale(factor);
+  if (!adjusted.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) ||
+      Math.abs(Math.abs(signedTwiceArea(adjusted)) * 0.5 - targetAreaSqm) >
+        Math.max(1, targetAreaSqm) * 1e-8) {
+    throw new Error("The selected vertices cannot reach that area while keeping the others fixed.");
+  }
+  return adjusted;
+}
+
 export function decomposeArea(areaSqm) {
   if (!Number.isFinite(areaSqm) || areaSqm < 0) {
     throw new Error("Area must be a finite, non-negative number.");

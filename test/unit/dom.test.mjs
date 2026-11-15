@@ -32,6 +32,17 @@ test("queryUi resolves elements by id and returns them", () => {
   assert.deepEqual(ui.fitSelectionBtn, { id: "fit-selection-btn" });
   assert.deepEqual(ui.coordinateValidation, { id: "coordinate-validation" });
   assert.deepEqual(ui.coordinatePreview, { id: "coordinate-preview" });
+  assert.deepEqual(ui.setShapeAreaBtn, { id: "set-shape-area-btn" });
+  assert.deepEqual(ui.shapeAreaDialog, { id: "shape-area-dialog" });
+  assert.deepEqual(ui.shapeAreaForm, { id: "shape-area-form" });
+  assert.deepEqual(ui.shapeAreaTarget, { id: "shape-area-target" });
+  assert.deepEqual(ui.shapeAreaUnit, { id: "shape-area-unit" });
+  assert.deepEqual(ui.shapeAreaMode, { id: "shape-area-mode" });
+  assert.deepEqual(ui.shapeAreaVertexFields, { id: "shape-area-vertex-fields" });
+  assert.deepEqual(ui.shapeAreaVertices, { id: "shape-area-vertices" });
+  assert.deepEqual(ui.shapeAreaStatus, { id: "shape-area-status" });
+  assert.deepEqual(ui.shapeAreaCancelBtn, { id: "shape-area-cancel" });
+  assert.deepEqual(ui.shapeAreaApplyBtn, { id: "shape-area-apply" });
   assert.deepEqual(ui.constraintsSummary, { id: "constraints-summary" });
   assert.deepEqual(ui.lockSelectedBtn, { id: "lock-selected-btn" });
   assert.deepEqual(ui.unlockSelectedBtn, { id: "unlock-selected-btn" });

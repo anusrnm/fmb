@@ -580,6 +580,78 @@ svg text.vertex-insert-affordance-text {
   margin: 8px 0 0;
 }
 
+.shape-area-dialog {
+  width: min(460px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+}
+
+.shape-area-dialog form {
+  display: grid;
+  gap: 7px;
+}
+
+.shape-area-dialog > form > label {
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.shape-area-dialog input[type="number"],
+.shape-area-dialog select {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--control-fg);
+  font: inherit;
+}
+
+.shape-area-dialog fieldset {
+  min-width: 0;
+  margin: 4px 0 0;
+  padding: 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+}
+
+.shape-area-dialog legend {
+  padding: 0 4px;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.shape-area-vertices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.shape-area-vertices label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ink) !important;
+}
+
+.shape-area-vertices span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shape-area-dialog .coordinate-validation[data-tone="error"] {
+  color: var(--danger);
+}
+
+.shape-area-dialog .coordinate-validation[data-tone="success"] {
+  color: var(--brand-strong);
+}
+
 svg text.segment-length-text {
   font-family: var(--font-mono);
   text-anchor: middle;

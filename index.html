@@ -295,6 +295,7 @@
       <button id="view-points-btn" type="button">Coordinates</button>
       <button id="edit-text-btn" type="button">Edit Text</button>
       <button id="join-points-btn" type="button">Join Selected Points</button>
+      <button id="set-shape-area-btn" type="button">Set Shape Area</button>
       <button id="edit-polygon-lengths-btn" type="button">Edit Side Lengths</button>
       <button id="transform-shape-btn" type="button">Transform Shape</button>
       <button id="insert-polygon-vertex-btn" type="button">Insert Polygon Vertex</button>
@@ -339,6 +340,35 @@
         <div class="dialog-actions">
           <button id="transform-shape-cancel" type="button">Cancel</button>
           <button type="submit">Apply transform</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="shape-area-dialog" class="points-dialog shape-area-dialog" aria-labelledby="shape-area-title">
+      <form id="shape-area-form" novalidate>
+        <h3 id="shape-area-title">Set Shape Area</h3>
+        <p>Choose an area and update method. In vertex mode, selected points move proportionally about the shape centroid; other vertices stay fixed.</p>
+        <label for="shape-area-target">Target area</label>
+        <input id="shape-area-target" type="number" min="0" step="any" />
+        <label for="shape-area-unit">Unit</label>
+        <select id="shape-area-unit">
+          <option value="sqm">sqm</option>
+          <option value="sqft">sqft</option>
+          <option value="cents">cents</option>
+        </select>
+        <label for="shape-area-mode">Update method</label>
+        <select id="shape-area-mode">
+          <option value="center">Scale around center</option>
+          <option value="vertices">Adjust selected vertices automatically</option>
+        </select>
+        <fieldset id="shape-area-vertex-fields" hidden>
+          <legend>Points that may move</legend>
+          <div id="shape-area-vertices" class="shape-area-vertices"></div>
+        </fieldset>
+        <p id="shape-area-status" class="coordinate-validation" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="shape-area-cancel" type="button">Cancel</button>
+          <button id="shape-area-apply" type="submit">Apply area</button>
         </div>
       </form>
     </dialog>
