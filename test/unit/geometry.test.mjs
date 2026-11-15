@@ -106,6 +106,8 @@ test("polygonFromSideLengths preserves ordered lengths for minor and major arcs"
   for (const sides of [[3, 4, 5], [2, 3, 4, 5], [5, 2, 2, 2], [1, 1, 1, 1, 1]]) {
     const points = polygonFromSideLengths(sides);
     assert.equal(points.length, sides.length);
+    assert.deepEqual(points[0], { x: 0, y: 0 });
+    assert.deepEqual(points[1], { x: sides[0], y: 0 });
     assert.deepEqual(findSelfIntersections(points), []);
     sides.forEach((side, index) => {
       assert.ok(Math.abs(distanceWorld(points[index], points[(index + 1) % points.length]) - side) < 1e-8);

@@ -22,6 +22,8 @@ export function queryUi(doc) {
     redoBtn: doc.getElementById("redo-btn"),
     zoomInBtn: doc.getElementById("zoom-in-btn"),
     rotatePointBtn: doc.getElementById("rotate-point-btn"),
+    chooseRotationPivotBtn: doc.getElementById("choose-rotation-pivot-btn"),
+    rotationStep: doc.getElementById("rotation-step"),
     rotateClockwiseBtn: doc.getElementById("rotate-clockwise-btn"),
     zoomOutBtn: doc.getElementById("zoom-out-btn"),
     zoomResetBtn: doc.getElementById("zoom-reset-btn"),

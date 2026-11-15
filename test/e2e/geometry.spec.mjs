@@ -241,6 +241,7 @@ test("draws a polygon from ordered side lengths and supports undo and redo", asy
   const polygon = data.polygons.at(-1);
   const points = polygon.pointIds.map((id) => data.points.find((point) => point.id === id));
   expect(points[0]).toMatchObject({ x: 0, y: 0 });
+  expect(points[1]).toMatchObject({ x: 5, y: 0 });
   [5, 2, 2, 2].forEach((side, index) => {
     const next = points[(index + 1) % points.length];
     expect(Math.hypot(points[index].x - next.x, points[index].y - next.y)).toBeCloseTo(side, 7);

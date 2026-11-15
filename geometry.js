@@ -130,15 +130,19 @@ export function polygonFromSideLengths(lengths) {
   let x = 0;
   let y = 0;
   const points = [{ x, y }];
+  const firstHalfAngle = Math.asin(sides[0] * factor);
+  const firstArc = major && longestIndex === 0 ? 2 * Math.PI - 2 * firstHalfAngle : 2 * firstHalfAngle;
+  const initialDirection = firstArc / 2 + Math.PI / 2;
   for (let index = 0; index < sides.length - 1; index += 1) {
     const halfAngle = Math.asin(sides[index] * factor);
     const arc = major && index === longestIndex ? 2 * Math.PI - 2 * halfAngle : 2 * halfAngle;
-    const direction = angle + arc / 2 + Math.PI / 2;
+    const direction = angle + arc / 2 + Math.PI / 2 - initialDirection;
     x += sides[index] * Math.cos(direction);
     y += sides[index] * Math.sin(direction);
     points.push({ x: x * longest, y: y * longest });
     angle += arc;
   }
+  points[1] = { x: lengths[0], y: 0 };
 
   if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y)) ||
       points.some((point, index) =>

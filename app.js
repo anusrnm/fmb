@@ -94,6 +94,7 @@ let contextMenuTextId = null;
 let editingPolygonLengthsId = null;
 let editingPolygonLengths = [];
 let transformingPolygonId = null;
+let choosingRotationPolygonId = null;
 let suppressGraphContextMenuOpen = false;
 let lastViewportAspect = 1;
 const perfCounters = {
@@ -1481,6 +1482,8 @@ function setMode(mode) {
     return;
   }
   state.mode = mode;
+  choosingRotationPolygonId = null;
+  ui.chooseRotationPivotBtn.setAttribute("aria-pressed", "false");
   cancelPolygonDraft();
   state.construction = null;
   state.boxSelect = null;
@@ -2822,6 +2825,30 @@ function handlePointerDown(event) {
   const world = screenToWorld(screen);
   state.mouseDownScreen = screen;
 
+  if (choosingRotationPolygonId !== null && event.button === 0) {
+    const polygon = getPolygonById(choosingRotationPolygonId);
+    const point = hitTestPoint(screen, 18);
+    if (!polygon) {
+      choosingRotationPolygonId = null;
+      ui.chooseRotationPivotBtn.setAttribute("aria-pressed", "false");
+      setStatus("Selected polygon no longer exists.", "warning");
+      return;
+    }
+    if (!point) {
+      setStatus("Tap an existing point to choose the rotation pivot.", "warning");
+      return;
+    }
+    clearSelection();
+    state.selection.polygons.add(polygon.id);
+    state.selection.points.add(point.id);
+    choosingRotationPolygonId = null;
+    ui.chooseRotationPivotBtn.setAttribute("aria-pressed", "false");
+    state.drag = null;
+    render();
+    setStatus("Rotation pivot selected. Choose a step and tap either rotation arrow.", "success");
+    return;
+  }
+
   if (
     event.button === 1 ||
     (event.button === 0 && event.shiftKey && (state.mode === "select" || state.mode === "polygon"))
@@ -3761,9 +3788,29 @@ function rotationStep(event) {
   return event.altKey ? 0.01 : event.shiftKey ? 0.1 : 1;
 }
 
+function chooseRotationPivot() {
+  if (choosingRotationPolygonId !== null) {
+    choosingRotationPolygonId = null;
+    ui.chooseRotationPivotBtn.setAttribute("aria-pressed", "false");
+    setStatus("Rotation pivot selection canceled.");
+    return;
+  }
+  if (state.selection.polygons.size !== 1) {
+    setStatus("Select one polygon before choosing a rotation pivot.", "warning");
+    return;
+  }
+  choosingRotationPolygonId = [...state.selection.polygons][0];
+  ui.chooseRotationPivotBtn.setAttribute("aria-pressed", "true");
+  setStatus("Tap an existing point as the pivot, or tap Pivot again to cancel.");
+}
+
+function buttonRotationStep(event) {
+  return event.altKey || event.shiftKey ? rotationStep(event) : Number(ui.rotationStep.value);
+}
+
 function rotateSelectedPolygon(degrees) {
   if (state.selection.polygons.size !== 1 || state.selection.points.size !== 1) {
-    setStatus("Select one polygon, then Ctrl/Cmd-click one point as the rotation pivot.", "warning");
+    setStatus("Select one polygon, then use Pivot to choose a point (or Ctrl/Cmd-click a point).", "warning");
     return;
   }
   let result;
@@ -4599,8 +4646,9 @@ function wireEvents() {
   addTrackedEvent(ui.undoBtn, "click", undo);
   addTrackedEvent(ui.redoBtn, "click", redo);
   addTrackedEvent(ui.zoomInBtn, "click", () => zoomBy(1.15));
-  addTrackedEvent(ui.rotatePointBtn, "click", (event) => rotateSelectedPolygon(rotationStep(event)));
-  addTrackedEvent(ui.rotateClockwiseBtn, "click", (event) => rotateSelectedPolygon(-rotationStep(event)));
+  addTrackedEvent(ui.chooseRotationPivotBtn, "click", chooseRotationPivot);
+  addTrackedEvent(ui.rotatePointBtn, "click", (event) => rotateSelectedPolygon(buttonRotationStep(event)));
+  addTrackedEvent(ui.rotateClockwiseBtn, "click", (event) => rotateSelectedPolygon(-buttonRotationStep(event)));
   addTrackedEvent(ui.zoomOutBtn, "click", () => zoomBy(1 / 1.15));
   addTrackedEvent(ui.zoomResetBtn, "click", resetZoomAndPan);
   addTrackedEvent(ui.fitDrawingBtn, "click", () => fitViewport(false));

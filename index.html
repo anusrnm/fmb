@@ -123,6 +123,14 @@
         <section class="graph-panel" aria-label="Graph editor">
           <svg id="graph" viewBox="0 0 1600 900" role="img" aria-label="Interactive graph"></svg>
           <div class="zoom-controls" aria-label="Zoom controls">
+            <button id="choose-rotation-pivot-btn" class="icon-btn" type="button" title="Choose rotation pivot" aria-label="Choose rotation pivot" aria-pressed="false">
+              <span class="pivot-label">Pivot</span>
+            </button>
+            <select id="rotation-step" aria-label="Rotation step" title="Rotation step">
+              <option value="1">1°</option>
+              <option value="0.1">0.1°</option>
+              <option value="0.01">0.01°</option>
+            </select>
             <button id="rotate-point-btn" class="icon-btn" type="button" title="Rotate counterclockwise 1deg (R); Shift: 0.1deg; Alt: 0.01deg" aria-label="Rotate around selected point">
               <span class="icon">↺</span>
             </button>
@@ -140,8 +148,10 @@
             </button>
           </div>
           <input id="inline-text-editor" class="inline-text-editor" type="text" maxlength="140" hidden aria-label="Inline text editor" />
-          <div id="vertex-edit-hint" class="vertex-edit-hint" hidden></div>
-          <div id="status" class="status-pill" role="status" aria-live="polite"></div>
+          <div class="canvas-messages">
+            <div id="vertex-edit-hint" class="vertex-edit-hint" hidden></div>
+            <div id="status" class="status-pill" role="status" aria-live="polite"></div>
+          </div>
         </section>
       </main>
     </div>
@@ -320,7 +330,7 @@
     <dialog id="polygon-lengths-dialog" class="points-dialog">
       <form id="polygon-lengths-form" novalidate>
         <h3 id="polygon-lengths-title">Polygon from side lengths</h3>
-        <p>Enter 3 to 256 lengths in order, separated by commas or spaces. One possible shape will be drawn from (0, 0).</p>
+        <p>Enter 3 to 256 lengths in order, separated by commas or spaces. The first vertex is (0, 0) and the second is on the positive X axis.</p>
         <label for="polygon-lengths-input">Side lengths</label>
         <textarea id="polygon-lengths-input" rows="3" placeholder="3, 4, 5" aria-describedby="polygon-lengths-error"></textarea>
         <p id="polygon-lengths-error" class="coordinate-validation" role="alert" hidden></p>
