@@ -53,7 +53,7 @@ bun run dev:bun
 - Text mode uses an inline editor on the canvas; double-click text to edit.
 - Midpoint mode previews midpoint on hover and inserts midpoint on click.
 - Segment lengths are shown (toggleable in settings).
-- Polygon details include area in multiple units and perimeter, with density-aware label display.
+- Selecting polygons shows compact Area and Perimeter lines. Area is decomposed into hectares, remaining ares, and remaining sqm (for example, 12,345.67 sqm is 1 ha 23 a 45.67 sqm), followed by total cents and sqft in brackets. Multiple selections show summed individual totals (overlap and shared boundaries count per shape). Area metrics are no longer drawn on the canvas; point labels and edge lengths remain.
 - Settings panel includes persistent show/hide controls for grid, values, points, labels, text, segments, shapes, and angle annotations.
 - Background image overlay: load a raster image (PNG/JPEG/GIF/WEBP/BMP), adjust opacity, fit it to the current view, or align it with X/Y/Width fields. The image is saved with the diagram (JSON, SVG, autosave) and participates in undo/redo.
 - Import/Export supports JSON and SVG (with embedded geometry metadata for SVG round-trip).

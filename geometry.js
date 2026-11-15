@@ -75,6 +75,17 @@ export function areaConversions(areaSqm) {
   };
 }
 
+export function decomposeArea(areaSqm) {
+  if (!Number.isFinite(areaSqm) || areaSqm < 0) {
+    throw new Error("Area must be a finite, non-negative number.");
+  }
+  const rounded = round2(areaSqm);
+  const hectares = Math.floor(rounded / 10000);
+  const remainder = round2(rounded - hectares * 10000);
+  const ares = Math.floor(remainder / 100);
+  return { hectares, ares, sqm: round2(remainder - ares * 100) };
+}
+
 export function triangleAreaFromSides(a, b, c) {
   if (![a, b, c].every((side) => Number.isFinite(side) && side > 0)) {
     return 0;

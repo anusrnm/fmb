@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   angleCandidateKey,
   areaConversions,
+  decomposeArea,
   calculateInteriorAngles,
   calculatePerimeter,
   clamp,
@@ -93,6 +94,15 @@ test("areaConversions converts square metres to all supported units", () => {
   assert.ok(Math.abs(result.acres - 2.4710538147) < 1e-6);
   assert.ok(Math.abs(result.cents - 247.10538147) < 1e-6);
   assert.ok(Math.abs(result.sqft - 107639.1041671) < 1e-3);
+});
+
+test("decomposeArea splits hectares, ares and square metres with rounding carry", () => {
+  assert.deepEqual(decomposeArea(12345.67), { hectares: 1, ares: 23, sqm: 45.67 });
+  assert.deepEqual(decomposeArea(99.999), { hectares: 0, ares: 1, sqm: 0 });
+  assert.deepEqual(decomposeArea(9999.999), { hectares: 1, ares: 0, sqm: 0 });
+  assert.deepEqual(decomposeArea(0), { hectares: 0, ares: 0, sqm: 0 });
+  assert.throws(() => decomposeArea(-1));
+  assert.throws(() => decomposeArea(Infinity));
 });
 
 test("triangleAreaFromSides calculates area with Heron's formula", () => {

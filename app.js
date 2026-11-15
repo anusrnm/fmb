@@ -5,6 +5,7 @@ import {
   distanceWorld,
   distanceScreen,
   areaConversions,
+  decomposeArea,
   projectPointToSegment,
   distancePointToSegmentScreen,
   normalizeAngleRadians,
@@ -1323,37 +1324,6 @@ function pointInsidePolygonScreen(screen, polygon) {
   return inside;
 }
 
-function hitTestPolygonLabel(screen) {
-  if (!state.display.showLabels || !state.display.showPolygons) {
-    return null;
-  }
-  // Matches rendered label block: title at origin.y−64, up to 6 metric lines ending near origin.y+29.
-  const HIT_HALF_W = 84;
-  const HIT_TOP    = -68;
-  const HIT_BOTTOM =  38;
-  for (let index = state.polygons.length - 1; index >= 0; index -= 1) {
-    const polygon = state.polygons[index];
-    const points = polygon.pointIds.map((id) => getPointById(id)).filter(Boolean);
-    if (points.length < 3) continue;
-    const centroid = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
-    centroid.x /= points.length;
-    centroid.y /= points.length;
-    const origin = worldToScreen({
-      x: centroid.x + (polygon.labelOffset?.x ?? 0),
-      y: centroid.y + (polygon.labelOffset?.y ?? 0),
-    });
-    if (
-      screen.x >= origin.x - HIT_HALF_W &&
-      screen.x <= origin.x + HIT_HALF_W &&
-      screen.y >= origin.y + HIT_TOP &&
-      screen.y <= origin.y + HIT_BOTTOM
-    ) {
-      return polygon;
-    }
-  }
-  return null;
-}
-
 function hitTestPolygon(screen) {
   for (let index = state.polygons.length - 1; index >= 0; index -= 1) {
     const polygon = state.polygons[index];
@@ -1402,10 +1372,6 @@ function resolvePointerTarget(screen) {
   const segment = hitTestSegment(screen);
   if (segment) {
     return { kind: "segment", item: segment };
-  }
-  const polygonLabel = hitTestPolygonLabel(screen);
-  if (polygonLabel) {
-    return { kind: "polygon-label", item: polygonLabel };
   }
   const polygon = hitTestPolygon(screen);
   return polygon ? { kind: "polygon", item: polygon } : null;
@@ -1919,10 +1885,51 @@ function updateVertexEditHint(polygon, canInsertVertex, canRemoveVertex) {
   ui.vertexEditHint.textContent = "Vertex edit active: Ctrl+Click a polygon edge to insert, or select one vertex and press X.";
 }
 
+function updateShapeDetails() {
+  const polygons = [...state.selection.polygons].map(getPolygonById).filter(Boolean);
+  ui.shapeDetails.hidden = polygons.length === 0;
+  if (polygons.length === 0) {
+    for (const detail of ui.shapeDetailsValues.querySelectorAll("dd")) {
+      detail.textContent = "";
+    }
+    delete ui.shapeDetailsValues.dataset.signature;
+    ui.shapeDetailsTitle.textContent = "";
+    ui.shapeDetailsNote.hidden = true;
+    return;
+  }
+  let area = 0;
+  let perimeter = 0;
+  for (const polygon of polygons) {
+    area += polygonArea(polygon.pointIds);
+    perimeter += polygonPerimeter(polygon.pointIds);
+  }
+  const converted = areaConversions(area);
+  const parts = decomposeArea(area);
+  const title = polygons.length === 1 ? "Shape Details" : `${polygons.length} Shapes — Totals`;
+  const metrics = [
+    ["Area", `${parts.hectares} ha ${parts.ares} a ${parts.sqm} sqm (${round3(converted.cents)} cents, ${round2(converted.sqft)} sqft)`],
+    ["Perimeter", `${round2(perimeter)} m`],
+  ];
+  const signature = JSON.stringify([title, metrics]);
+  if (ui.shapeDetailsValues.dataset.signature === signature) {
+    return;
+  }
+  ui.shapeDetailsTitle.textContent = title;
+  ui.shapeDetailsNote.hidden = polygons.length === 1;
+  const rows = ui.shapeDetailsValues.querySelectorAll("dd");
+  metrics.forEach(([, value], index) => {
+    if (rows[index].textContent !== value) {
+      rows[index].textContent = value;
+    }
+  });
+  ui.shapeDetailsValues.dataset.signature = signature;
+}
+
 function renderNow() {
   perfCounters.renderNowCalls += 1;
   updateConstraintsPanel();
   updateZoomResetButton();
+  updateShapeDetails();
   const rect = getRect();
   lastViewportAspect = rect.width / Math.max(rect.height, 1);
   ui.graph.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
@@ -1970,7 +1977,7 @@ function renderNow() {
 
     const polygonScreenPoints = points.map((point) => worldToScreen(point));
     const selected = state.selection.polygons.has(polygon.id);
-    const hovered = ["polygon", "polygon-label"].includes(state.hoverTarget?.kind) &&
+    const hovered = state.hoverTarget?.kind === "polygon" &&
       state.hoverTarget.item.id === polygon.id;
 
     if (state.display.showPolygons) {
@@ -1995,46 +2002,6 @@ function renderNow() {
             "stroke-width": edgeSelected ? 3.4 : selected || hovered ? 2.2 : 1.6,
             "stroke-linecap": "round",
             ...(dashArray && { "stroke-dasharray": dashArray }),
-          })
-        );
-      }
-    }
-
-    const area = polygonArea(polygon.pointIds);
-    const perimeter = polygonPerimeter(polygon.pointIds);
-    const converted = areaConversions(area);
-    const centroid = points.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
-    centroid.x /= points.length;
-    centroid.y /= points.length;
-    const labelOriginScreen = worldToScreen({
-      x: centroid.x + (polygon.labelOffset?.x ?? 0),
-      y: centroid.y + (polygon.labelOffset?.y ?? 0),
-    });
-    const xs = polygonScreenPoints.map((point) => point.x);
-    const ys = polygonScreenPoints.map((point) => point.y);
-    const bboxArea = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
-    const showArea = state.display.showLabels && state.display.showPolygons;
-    const showAreaMetrics = state.display.showLabels && state.display.showPolygons && bboxArea > 42000;
-    if (showArea) {
-      const title = makeText(labelOriginScreen.x, labelOriginScreen.y - 64, `Area: ${round2(converted.sqm)} sqm`, {
-        class: "area-metric-text area-metric-title",
-      });
-      labelsGroup.append(title);
-    }
-
-    if (showAreaMetrics) {
-      const areaLines = [
-        `Hectares: ${round3(converted.hectares)}`,
-        `Ares: ${round3(converted.ares)}`,
-        `Perimeter: ${round2(perimeter)} m`,
-        `Acres: ${round3(converted.acres)}`,
-        `Cents: ${round3(converted.cents)}`,
-        `Sqft: ${round2(converted.sqft)}`,
-      ];
-      for (let i = 0; i < areaLines.length; i += 1) {
-        labelsGroup.append(
-          makeText(labelOriginScreen.x, labelOriginScreen.y - 46 + i * 15, areaLines[i], {
-            class: "area-metric-text",
           })
         );
       }
@@ -2876,7 +2843,6 @@ function handlePointerDown(event) {
     const target = resolvePointerTarget(screen);
     const hitPoint = target?.kind === "point" ? target.item : null;
     const hitText = target?.kind === "text" ? target.item : null;
-    const hitPolygonLabel = target?.kind === "polygon-label" ? target.item : null;
     const hitPolygon = target?.kind === "polygon" ? target.item : null;
 
     // Keep existing close behavior: clicking the first draft vertex closes polygon.
@@ -2919,18 +2885,6 @@ function handlePointerDown(event) {
       };
       render();
       setStatus("Dragging text...");
-      return;
-    }
-
-    if (hitPolygonLabel) {
-      state.drag = {
-        type: "move-polygon-label",
-        polygonId: hitPolygonLabel.id,
-        anchorWorld: world,
-        startOffset: { ...(hitPolygonLabel.labelOffset ?? { x: 0, y: 0 }) },
-      };
-      render();
-      setStatus("Dragging polygon label...");
       return;
     }
 
@@ -2977,7 +2931,6 @@ function handlePointerDown(event) {
   const hitPoint = target?.kind === "point" ? target.item : null;
   const hitText = target?.kind === "text" ? target.item : null;
   const hitSegment = target?.kind === "segment" ? target.item : null;
-  const hitPolygonLabel = target?.kind === "polygon-label" ? target.item : null;
   const hitPolygon = target?.kind === "polygon" ? target.item : null;
 
   const additive = event.ctrlKey || event.metaKey;
@@ -2998,7 +2951,7 @@ function handlePointerDown(event) {
     }
   }
 
-  if (!hitPoint && !hitText && !hitSegment && !hitPolygon && !hitPolygonLabel) {
+  if (!hitPoint && !hitText && !hitSegment && !hitPolygon) {
     if (!additive) {
       clearSelection();
       render();
@@ -3062,13 +3015,6 @@ function handlePointerDown(event) {
       textId: hitText.id,
       anchorWorld: world,
       start: { x: hitText.x, y: hitText.y },
-    };
-  } else if (hitPolygonLabel) {
-    state.drag = {
-      type: "move-polygon-label",
-      polygonId: hitPolygonLabel.id,
-      anchorWorld: world,
-      startOffset: { ...(hitPolygonLabel.labelOffset ?? { x: 0, y: 0 }) },
     };
   } else if (hitSegment) {
     if (additive) {
@@ -3199,18 +3145,6 @@ function handlePointerMove(event) {
     return;
   }
 
-  if (state.drag?.type === "move-polygon-label") {
-    const polygon = getPolygonById(state.drag.polygonId);
-    if (polygon) {
-      polygon.labelOffset = {
-        x: round2(state.drag.startOffset.x + (world.x - state.drag.anchorWorld.x)),
-        y: round2(state.drag.startOffset.y + (world.y - state.drag.anchorWorld.y)),
-      };
-      render();
-    }
-    return;
-  }
-
   if (state.mode === "box-select" && state.boxSelect) {
     state.boxSelect.current = screen;
     render();
@@ -3295,8 +3229,7 @@ function handlePointerUp(event) {
   if (
     state.drag?.type === "move-points" ||
     state.drag?.type === "move-polygon" ||
-    state.drag?.type === "move-text" ||
-    state.drag?.type === "move-polygon-label"
+    state.drag?.type === "move-text"
   ) {
     pushHistory("Move selection");
   }
@@ -4854,7 +4787,7 @@ function wireEvents() {
     const hitPoint = hitTestPoint(screen);
     const hitText = hitTestText(screen);
     const hitSegment = hitTestSegment(screen);
-    const hitPolygon = hitTestPolygonLabel(screen) || hitTestPolygon(screen);
+    const hitPolygon = hitTestPolygon(screen);
     const edgePick = findNearestEdge(world);
     const polygonEdgePick = edgePick?.edge?.edgeType === "polygon-edge" ? edgePick : null;
     const removablePolygon = hitPoint

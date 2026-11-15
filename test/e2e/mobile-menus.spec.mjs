@@ -21,6 +21,32 @@ test("opens and closes the tools menu from the left burger button", async ({ pag
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
 
+test("mobile shape details stay below toolbar and clear of bottom controls", async ({ page }) => {
+  await page.locator("#import-file").setInputFiles({
+    name: "mobile-details.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ data: {
+      nextId: 5, scale: 32, panX: 0, panY: 0,
+      points: [{ id: 1, x: -2, y: -2 }, { id: 2, x: 2, y: -2 },
+        { id: 3, x: 2, y: 2 }, { id: 4, x: -2, y: 2 }],
+      polygons: [{ id: 5, pointIds: [1, 2, 3, 4] }],
+      segments: [], texts: [], angleAnnotations: [], constraints: [],
+    } })),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+  const graph = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({ position: { x: graph.width / 2, y: graph.height / 2 } });
+  await expect(page.locator("#shape-details")).toBeVisible();
+  const panel = await page.locator("#shape-details").boundingBox();
+  const toolbar = await page.locator(".topbar").boundingBox();
+  const controls = await page.locator(".zoom-controls").boundingBox();
+  const status = await page.locator("#status").boundingBox();
+  expect(panel.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height);
+  expect(panel.x + panel.width).toBeLessThan(controls.x);
+  expect(panel.y + panel.height).toBeLessThan(status.y);
+  expect(panel.x).toBeGreaterThanOrEqual(graph.x);
+});
+
 test("mobile session title uses the full menu width above its buttons", async ({ page }) => {
   await page.locator("#mobile-actions-toggle").click();
   const title = await page.locator("#session-select").boundingBox();
@@ -104,7 +130,7 @@ test("touch rotation selects a pivot and fine steps without shortcuts", async ({
     await expect(page.getByRole("status")).toContainText("JSON import complete");
     await page.locator("#mobile-actions-toggle").tap();
     await page.getByTitle("Settings").tap();
-    await page.getByLabel("Point and area labels").uncheck();
+    await page.getByLabel("Point labels", { exact: true }).uncheck();
     await page.getByRole("button", { name: "Close", exact: true }).tap();
     const box = await page.locator("#graph").boundingBox();
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);

@@ -1,8 +1,65 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { clickGraph, exportDiagram, gotoEditor } from "./helpers.mjs";
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page);
+});
+
+test("shape details show selected metrics without canvas area labels and update after edits", async ({ page }) => {
+  await importTransformNetwork(page);
+  await expect(page.locator("#shape-details")).toBeHidden();
+  await expect(page.locator("#graph .area-metric-text")).toHaveCount(0);
+  const box = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({
+    position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
+  });
+  await expect(page.locator("#shape-details")).toBeVisible();
+  const metrics = await page.locator("#shape-details-values dd").allTextContents();
+  expect(metrics).toEqual(["0 ha 0 a 16 sqm (0.395 cents, 172.22 sqft)", "16 m"]);
+  await expect(page.locator("#graph .segment-length-text").first()).toBeVisible();
+  await expect(page.locator("#graph text", { hasText: "P1 (2, 3)" })).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTitle("Export SVG").click(),
+  ]);
+  const svg = await readFile(await download.path(), "utf8");
+  expect(svg).not.toContain("area-metric-text");
+  expect(svg).toContain("fmb-state");
+  await page.getByTitle("Settings").click();
+  await page.getByLabel("Point labels", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.locator("#shape-details")).toBeVisible();
+  await page.locator("#graph").click({
+    button: "right", position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
+  });
+  await page.getByRole("button", { name: "Coordinates", exact: true }).click();
+  await page.locator("#points-output").fill("2, 3\n4, 3\n4, 5\n2, 5");
+  await page.locator("#draw-points-btn").click();
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 4 sqm (0.099 cents, 43.06 sqft)");
+  await page.locator("#undo-btn").click();
+  await expect(page.locator("#shape-details")).toBeHidden();
+  await page.locator("#graph").click({
+    position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
+  });
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 16 sqm (0.395 cents, 172.22 sqft)");
+  await page.locator("#redo-btn").click();
+  await expect(page.locator("#shape-details")).toBeHidden();
+  await page.locator("#graph").click({ position: { x: box.width - 120, y: box.height - 160 } });
+  await expect(page.locator("#shape-details")).toBeHidden();
+});
+
+test("shape details sum individual areas and perimeters for overlapping selections", async ({ page }) => {
+  await importOverlappingRectangles(page);
+  await selectBothRectangles(page);
+  await expect(page.locator("#shape-details-title")).toHaveText("2 Shapes — Totals");
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 32 sqm (0.791 cents, 344.45 sqft)");
+  await expect(page.locator("#shape-details-values dd").last()).toHaveText("32 m");
+  await expect(page.locator("#shape-details-note")).toBeVisible();
+  await expect(page.locator("#graph .area-metric-text")).toHaveCount(0);
+  await expect(page.locator("#graph .segment-length-text").first()).toBeVisible();
+  await page.keyboard.press("Delete");
+  await expect(page.locator("#shape-details")).toBeHidden();
 });
 
 async function importTransformNetwork(page, lockedPointId = null) {
@@ -300,7 +357,7 @@ test("deleting a polygon preserves vertices used by other polygons or segments",
   await expect(page.getByRole("status")).toContainText("JSON import complete");
   await page.locator("#import-file").evaluate((input) => input.blur());
   await page.getByTitle("Settings").click();
-  await page.getByLabel("Point and area labels").uncheck();
+  await page.getByLabel("Point labels", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   const graphBox = await page.locator("#graph").boundingBox();
   await clickGraph(page, graphBox.width / 2 + 64, graphBox.height / 2 - 64);

@@ -5,6 +5,10 @@
 export function queryUi(doc) {
   return {
     graph: doc.getElementById("graph"),
+    shapeDetails: doc.getElementById("shape-details"),
+    shapeDetailsTitle: doc.getElementById("shape-details-title"),
+    shapeDetailsValues: doc.getElementById("shape-details-values"),
+    shapeDetailsNote: doc.getElementById("shape-details-note"),
     status: doc.getElementById("status"),
     versionBadge: doc.getElementById("version-badge"),
     modeButtons: Array.from(doc.querySelectorAll(".tool-btn[data-mode]")),
