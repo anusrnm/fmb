@@ -387,6 +387,11 @@ body {
   border-color: var(--control-border);
 }
 
+#delete-selection-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .settings-btn {
   border-color: rgba(245, 158, 11, 0.4);
 }
@@ -476,7 +481,8 @@ svg {
   user-select: none;
 }
 
-svg.mode-select {
+svg.mode-select,
+svg.mode-multi-select {
   cursor: default;
 }
 
@@ -562,6 +568,11 @@ svg text.vertex-insert-affordance-text {
   margin: 0 0 0 4px;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
+}
+
+.shape-details dd.area-conversions {
+  display: block;
+  margin-left: 0;
 }
 
 .shape-details p {

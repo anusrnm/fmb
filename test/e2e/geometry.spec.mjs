@@ -6,6 +6,44 @@ test.beforeEach(async ({ page }) => {
   await gotoEditor(page);
 });
 
+test("desktop Multi selects and deselects individual items without modifiers", async ({ page }) => {
+  await page.locator("#import-file").setInputFiles({
+    name: "desktop-multi.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ data: {
+      nextId: 4, scale: 32, panX: 0, panY: 0,
+      points: [{ id: 1, x: -3, y: 0 }, { id: 2, x: 0, y: 0 }, { id: 3, x: 3, y: 0 }],
+      segments: [], polygons: [], texts: [], angleAnnotations: [], constraints: [],
+    } })),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+  const selectTools = page.getByLabel("Select tools");
+  await selectTools.selectOption("multi-select");
+  await expect(page.locator(".tool-select-wrap[data-group-modes^='select']")).toHaveClass(/active/);
+  const graph = await page.locator("#graph").boundingBox();
+  const x = graph.x + graph.width / 2;
+  const y = graph.y + graph.height / 2;
+  await page.mouse.click(x - 96, y);
+  await page.mouse.click(x, y);
+  await page.mouse.click(x + 96, y);
+  await expect(page.getByRole("status")).toContainText("3 point(s)");
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 24, y + 24);
+  await page.mouse.up();
+  await expect(page.getByRole("status")).toContainText("2 point(s)");
+  await page.getByRole("button", { name: "Delete selection" }).click();
+  expect((await exportDiagram(page)).points).toEqual([{ id: 2, x: 0, y: 0 }]);
+  await page.locator("#undo-btn").click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("#graph")).toHaveClass(/mode-multi-select/);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(selectTools).toHaveValue("multi-select");
+  await selectTools.selectOption("select");
+  await page.mouse.click(x, y);
+  await expect(page.getByRole("status")).toContainText("1 point(s)");
+});
+
 test("shape details show selected metrics without canvas area labels and update after edits", async ({ page }) => {
   await importTransformNetwork(page);
   await expect(page.locator("#shape-details")).toBeHidden();
@@ -16,7 +54,10 @@ test("shape details show selected metrics without canvas area labels and update 
   });
   await expect(page.locator("#shape-details")).toBeVisible();
   const metrics = await page.locator("#shape-details-values dd").allTextContents();
-  expect(metrics).toEqual(["0 ha 0 a 16 sqm (0.395 cents, 172.22 sqft)", "16 m"]);
+  expect(metrics).toEqual(["0 ha 0 a 16 sqm", "(0.395 cents, 172.22 sqft)", "16 m"]);
+  const areaBox = await page.locator("#shape-details-values dd").first().boundingBox();
+  const conversionsBox = await page.locator("#shape-details-values dd.area-conversions").boundingBox();
+  expect(conversionsBox.y).toBeGreaterThanOrEqual(areaBox.y + areaBox.height);
   await expect(page.locator("#graph .segment-length-text").first()).toBeVisible();
   await expect(page.locator("#graph text", { hasText: "P1 (2, 3)" })).toBeVisible();
   const [download] = await Promise.all([
@@ -36,13 +77,15 @@ test("shape details show selected metrics without canvas area labels and update 
   await page.getByRole("button", { name: "Coordinates", exact: true }).click();
   await page.locator("#points-output").fill("2, 3\n4, 3\n4, 5\n2, 5");
   await page.locator("#draw-points-btn").click();
-  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 4 sqm (0.099 cents, 43.06 sqft)");
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 4 sqm");
+  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.099 cents, 43.06 sqft)");
   await page.locator("#undo-btn").click();
   await expect(page.locator("#shape-details")).toBeHidden();
   await page.locator("#graph").click({
     position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
   });
-  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 16 sqm (0.395 cents, 172.22 sqft)");
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 16 sqm");
+  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.395 cents, 172.22 sqft)");
   await page.locator("#redo-btn").click();
   await expect(page.locator("#shape-details")).toBeHidden();
   await page.locator("#graph").click({ position: { x: box.width - 120, y: box.height - 160 } });
@@ -53,7 +96,8 @@ test("shape details sum individual areas and perimeters for overlapping selectio
   await importOverlappingRectangles(page);
   await selectBothRectangles(page);
   await expect(page.locator("#shape-details-title")).toHaveText("2 Shapes — Totals");
-  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 32 sqm (0.791 cents, 344.45 sqft)");
+  await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 32 sqm");
+  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.791 cents, 344.45 sqft)");
   await expect(page.locator("#shape-details-values dd").last()).toHaveText("32 m");
   await expect(page.locator("#shape-details-note")).toBeVisible();
   await expect(page.locator("#graph .area-metric-text")).toHaveCount(0);
@@ -311,6 +355,59 @@ test("draws a polygon from ordered side lengths and supports undo and redo", asy
   const restored = await exportDiagram(page);
   expect(restored.polygons.at(-1)).toEqual(polygon);
   expect(restored.points.slice(-points.length)).toEqual(points);
+});
+
+test("deleting a segment removes unshared endpoints and supports undo and redo", async ({ page }) => {
+  const diagram = { data: {
+    nextId: 5, scale: 32, panX: 0, panY: 0,
+    points: [{ id: 1, x: -4, y: 0 }, { id: 2, x: 4, y: 0 }, { id: 3, x: 8, y: 5 }],
+    segments: [{ id: 4, a: 1, b: 2, kind: "segment" }],
+    polygons: [], texts: [], angleAnnotations: [], constraints: [],
+  } };
+  await page.locator("#import-file").setInputFiles({
+    name: "segment.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(diagram)),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+  const box = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({ position: { x: box.width / 2, y: box.height / 2 } });
+  await page.keyboard.press("Delete");
+  let data = await exportDiagram(page);
+  expect(data.segments).toHaveLength(0);
+  expect(data.points.map((point) => point.id)).toEqual([3]);
+  await page.locator("#undo-btn").click();
+  data = await exportDiagram(page);
+  expect(data.points).toEqual(diagram.data.points);
+  expect(data.segments).toHaveLength(1);
+  await page.locator("#redo-btn").click();
+  data = await exportDiagram(page);
+  expect(data.points.map((point) => point.id)).toEqual([3]);
+  expect(data.segments).toHaveLength(0);
+});
+
+test("deleting a segment preserves endpoints shared with polygons, segments or annotations", async ({ page }) => {
+  const diagram = { data: {
+    nextId: 12, scale: 32, panX: 0, panY: 0,
+    points: [
+      { id: 1, x: -4, y: 0 }, { id: 2, x: 4, y: 0 },
+      { id: 3, x: -4, y: 4 }, { id: 4, x: -8, y: 4 },
+      { id: 5, x: 8, y: 0 }, { id: 6, x: 8, y: 4 },
+    ],
+    segments: [{ id: 7, a: 1, b: 2 }, { id: 8, a: 2, b: 5 }],
+    polygons: [{ id: 9, pointIds: [1, 3, 4] }],
+    texts: [], angleAnnotations: [{ id: 10, vertexId: 2, aId: 5, bId: 6 }], constraints: [],
+  } };
+  await page.locator("#import-file").setInputFiles({
+    name: "shared-segment.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(diagram)),
+  });
+  await expect(page.getByRole("status")).toContainText("JSON import complete");
+  const box = await page.locator("#graph").boundingBox();
+  await page.locator("#graph").click({ position: { x: box.width / 2, y: box.height / 2 } });
+  await page.keyboard.press("Delete");
+  const data = await exportDiagram(page);
+  expect(data.segments.map((segment) => segment.id)).toEqual([8]);
+  expect(data.points).toEqual(diagram.data.points);
+  expect(data.polygons[0].pointIds).toEqual([1, 3, 4]);
+  expect(data.angleAnnotations).toEqual(diagram.data.angleAnnotations);
 });
 
 test("deleting a polygon removes its unshared vertices and undo restores them", async ({ page }) => {

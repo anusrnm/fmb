@@ -27,10 +27,11 @@
         </div>
 
         <nav id="tool-menu" class="tool-menu" aria-label="Drawing tools">
-          <div class="tool-select-wrap active" data-group-modes="select,box-select" title="Select tools">
+          <div class="tool-select-wrap active" data-group-modes="select,multi-select,box-select" title="Select tools">
             <span class="icon" aria-hidden="true">↖▭</span>
             <select class="tool-select" data-group="select" aria-label="Select tools">
               <option value="select" selected>Select</option>
+              <option value="multi-select">Multi</option>
               <option value="box-select">Box</option>
             </select>
           </div>
@@ -90,6 +91,9 @@
             <button id="redo-btn" class="icon-btn" type="button" title="Redo (Ctrl+Y)">
               <span class="icon">↷</span>
             </button>
+            <button id="delete-selection-btn" class="icon-btn" type="button" title="Delete selection (Delete/Backspace)" aria-label="Delete selection" disabled>
+              Delete
+            </button>
             <button id="fit-drawing-btn" class="icon-btn" type="button" title="Fit drawing (F)" aria-label="Fit drawing">
               <span class="icon">□</span>
             </button>
@@ -125,7 +129,7 @@
           <section id="shape-details" class="shape-details" aria-labelledby="shape-details-title" hidden>
             <h2 id="shape-details-title">Shape Details</h2>
             <dl id="shape-details-values">
-              <div><dt>Area:</dt><dd></dd></div>
+              <div><dt>Area:</dt><dd></dd><dd class="area-conversions"></dd></div>
               <div><dt>Perimeter:</dt><dd></dd></div>
             </dl>
             <p id="shape-details-note" hidden>Totals count overlapping areas and shared boundaries per shape.</p>

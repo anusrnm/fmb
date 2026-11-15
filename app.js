@@ -64,6 +64,7 @@ function sanitizePolygonEdgeStyles(raw) {
 
 const MODES = [
   "select",
+  "multi-select",
   "box-select",
   "point",
   "midpoint",
@@ -1232,21 +1233,26 @@ function cancelPolygonDraft() {
   state.polygonDraftCreatedPointIds.clear();
 }
 
+function hasSelection() {
+  return state.selection.points.size > 0 ||
+    state.selection.segments.size > 0 ||
+    state.selection.polygons.size > 0 ||
+    state.selection.texts.size > 0;
+}
+
 function removeSelectedObjects() {
-  if (
-    state.selection.points.size === 0 &&
-    state.selection.segments.size === 0 &&
-    state.selection.polygons.size === 0 &&
-    state.selection.texts.size === 0
-  ) {
+  if (!hasSelection()) {
     return;
   }
 
-  const polygonPointIds = new Set(
-    state.polygons
+  const removedPointCandidates = new Set([
+    ...state.polygons
       .filter((polygon) => state.selection.polygons.has(polygon.id))
-      .flatMap((polygon) => polygon.pointIds)
-  );
+      .flatMap((polygon) => polygon.pointIds),
+    ...state.segments
+      .filter((segment) => state.selection.segments.has(segment.id))
+      .flatMap((segment) => [segment.a, segment.b]),
+  ]);
   for (const pointId of state.selection.points) {
     removePoint(pointId);
   }
@@ -1254,8 +1260,9 @@ function removeSelectedObjects() {
   state.segments = state.segments.filter((segment) => !state.selection.segments.has(segment.id));
   state.polygons = state.polygons.filter((polygon) => !state.selection.polygons.has(polygon.id));
   state.texts = state.texts.filter((text) => !state.selection.texts.has(text.id));
-  for (const pointId of polygonPointIds) {
-    if (!state.polygonDraft.includes(pointId) && !pointIsUsedOutsidePolygon(pointId, null)) {
+  for (const pointId of removedPointCandidates) {
+    if (!state.polygonDraft.includes(pointId) && state.construction?.firstPointId !== pointId &&
+        !pointIsUsedOutsidePolygon(pointId, null)) {
       removePoint(pointId);
     }
   }
@@ -1483,6 +1490,8 @@ function setMode(mode) {
 
   if (mode === "select") {
     setStatus("Select mode: click to select and drag. Delete removes selected objects.");
+  } else if (mode === "multi-select") {
+    setStatus("Multi-select mode: click or tap items to select or deselect; drag empty space to pan.");
   } else if (mode === "polygon") {
     setStatus("Polygon mode: click to place vertices, Enter for numeric edge input, click the first vertex or Ctrl/Cmd+click to close.");
   } else if (mode === "angle") {
@@ -1845,7 +1854,7 @@ function drawBackgroundImage(parentGroup) {
 }
 
 function getSelectedPolygonForVertexEditing() {
-  if (state.mode !== "select" && state.mode !== "polygon") {
+  if (state.mode !== "select" && state.mode !== "multi-select" && state.mode !== "polygon") {
     return null;
   }
   if (state.selection.polygons.size !== 1) {
@@ -1907,7 +1916,8 @@ function updateShapeDetails() {
   const parts = decomposeArea(area);
   const title = polygons.length === 1 ? "Shape Details" : `${polygons.length} Shapes — Totals`;
   const metrics = [
-    ["Area", `${parts.hectares} ha ${parts.ares} a ${parts.sqm} sqm (${round3(converted.cents)} cents, ${round2(converted.sqft)} sqft)`],
+    ["Area", `${parts.hectares} ha ${parts.ares} a ${parts.sqm} sqm`],
+    ["Area conversions", `(${round3(converted.cents)} cents, ${round2(converted.sqft)} sqft)`],
     ["Perimeter", `${round2(perimeter)} m`],
   ];
   const signature = JSON.stringify([title, metrics]);
@@ -1927,6 +1937,7 @@ function updateShapeDetails() {
 
 function renderNow() {
   perfCounters.renderNowCalls += 1;
+  ui.deleteSelectionBtn.disabled = !hasSelection();
   updateConstraintsPanel();
   updateZoomResetButton();
   updateShapeDetails();
@@ -2183,7 +2194,7 @@ function renderNow() {
     overlaysGroup.append(rectElement);
   }
 
-  if (state.mode !== "select" && state.mode !== "box-select" && state.hoverWorld) {
+  if (state.mode !== "select" && state.mode !== "multi-select" && state.mode !== "box-select" && state.hoverWorld) {
     const ghost = worldToScreen(state.hoverWorld);
     overlaysGroup.append(
       makeCircle(ghost.x, ghost.y, 4.5, {
@@ -2818,7 +2829,8 @@ function handlePointerDown(event) {
 
   if (
     event.button === 1 ||
-    (event.button === 0 && event.shiftKey && (state.mode === "select" || state.mode === "polygon"))
+    (event.button === 0 && event.shiftKey &&
+      (state.mode === "select" || state.mode === "multi-select" || state.mode === "polygon"))
   ) {
     state.drag = {
       type: "pan",
@@ -2922,7 +2934,7 @@ function handlePointerDown(event) {
     }
   }
 
-  if (state.mode !== "select") {
+  if (state.mode !== "select" && state.mode !== "multi-select") {
     handleModeAction(screen, world, event);
     return;
   }
@@ -2933,9 +2945,23 @@ function handlePointerDown(event) {
   const hitSegment = target?.kind === "segment" ? target.item : null;
   const hitPolygon = target?.kind === "polygon" ? target.item : null;
 
-  const additive = event.ctrlKey || event.metaKey;
+  if (state.mode === "multi-select" && target) {
+    const selectionKind = {
+      point: "points",
+      text: "texts",
+      segment: "segments",
+      polygon: "polygons",
+    }[target.kind];
+    toggleSelection(selectionKind, target.item.id);
+    state.drag = null;
+    render();
+    setStatus(`Selection updated: ${getSelectionSummary()}`);
+    return;
+  }
 
-  if (additive && !hitPoint && !hitText && !hitSegment) {
+  const additive = state.mode === "multi-select" || event.ctrlKey || event.metaKey;
+
+  if ((event.ctrlKey || event.metaKey) && !hitPoint && !hitText && !hitSegment) {
     const vertexPolygon = getSelectedPolygonForVertexEditing();
     if (vertexPolygon) {
       const insertEdgePick = findNearestPolygonEdge(world, vertexPolygon.id, 14);
@@ -3066,7 +3092,8 @@ function handlePointerMove(event) {
   const world = screenToWorld(screen);
   state.hoverScreen = screen;
   state.hoverWorld = world;
-  state.hoverTarget = state.mode === "select" && !state.drag ? resolvePointerTarget(screen) : null;
+  state.hoverTarget = (state.mode === "select" || state.mode === "multi-select") && !state.drag
+    ? resolvePointerTarget(screen) : null;
 
   if (state.mode === "midpoint") {
     const edgePick = findNearestEdge(world);
@@ -3348,7 +3375,7 @@ function pointsToCoordinateList() {
 }
 
 function startSelectModeEditingFromKeyboard() {
-  if (state.mode !== "select") {
+  if (state.mode !== "select" && state.mode !== "multi-select") {
     return false;
   }
 
@@ -4458,7 +4485,7 @@ async function handleKeyDown(event) {
   const step = event.shiftKey ? 1 : event.altKey ? 0.01 : 0.2;
   const selectedPointIds = getSelectedPointIds();
   if (
-    state.mode === "select" &&
+    (state.mode === "select" || state.mode === "multi-select") &&
     ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) &&
     (selectedPointIds.size > 0 || state.selection.texts.size > 0)
   ) {
@@ -4578,6 +4605,7 @@ function wireEvents() {
 
   addTrackedEvent(ui.undoBtn, "click", undo);
   addTrackedEvent(ui.redoBtn, "click", redo);
+  addTrackedEvent(ui.deleteSelectionBtn, "click", removeSelectedObjects);
   addTrackedEvent(ui.zoomInBtn, "click", () => zoomBy(1.15));
   addTrackedEvent(ui.chooseRotationPivotBtn, "click", chooseRotationPivot);
   addTrackedEvent(ui.rotatePointBtn, "click", (event) => rotateSelectedPolygon(buttonRotationStep(event)));

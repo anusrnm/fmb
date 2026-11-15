@@ -24,6 +24,7 @@ export function queryUi(doc) {
     sessionDeleteBtn: doc.getElementById("session-delete-btn"),
     undoBtn: doc.getElementById("undo-btn"),
     redoBtn: doc.getElementById("redo-btn"),
+    deleteSelectionBtn: doc.getElementById("delete-selection-btn"),
     zoomInBtn: doc.getElementById("zoom-in-btn"),
     rotatePointBtn: doc.getElementById("rotate-point-btn"),
     chooseRotationPivotBtn: doc.getElementById("choose-rotation-pivot-btn"),

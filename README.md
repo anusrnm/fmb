@@ -30,16 +30,18 @@ bun run dev:bun
 
 ## Main features
 
-- Drawing modes: Select, Box Select, Point, Mid Point, Segment, Parallel, Perpendicular, Polygon, Angle, and Text.
+- Drawing modes: Select, Multi Select, Box Select, Point, Mid Point, Segment, Parallel, Perpendicular, Polygon, Angle, and Text.
 - Polygon drafting closes by clicking the first vertex and shows draft shading while building.
 - Side lengths creates one possible polygon with its first vertex at (0, 0) and second at (first side length, 0), from 3 to 256 lengths entered in edge order. The longest side must be shorter than the sum of the others; coordinates retain full precision while labels are rounded.
 - Right-click a polygon and choose Edit Side Lengths to re-plot it; lengths are displayed to two decimal places (or two significant digits below 0.01). When the side count stays the same, unchanged sides retain their precision. Shared vertices are detached so other geometry is unchanged.
-- Deleting a polygon also deletes its vertices unless they are used by other geometry.
+- Deleting a polygon or segment also deletes its vertices or endpoints unless they are used by other geometry.
 - Right-click a polygon and choose Transform Shape to move by X/Y offset, rotate counterclockwise, or mirror horizontally (flip X) / vertically (flip Y). Rotation and mirroring use its first vertex as the pivot. The entire network connected through shared polygon vertices and segments transforms rigidly; disconnected geometry, free text, and background images stay unchanged. If any locked point would move, the operation is rejected without changes. Transformations preserve precision and support undo/redo.
 - For immediate rotation of only one polygon, select the polygon and Ctrl/Cmd-click one point as the pivot. Use R / the counterclockwise button or Q / the clockwise button above Zoom (+): 1 degree by default, 0.1 degree with Shift, or 0.01 degree with Alt (Alt takes precedence). No dialog is shown. Shared vertices are detached so other geometry stays unchanged; moving locked vertices is rejected.
 - Touch rotation: select a polygon, tap Pivot, then tap an existing point. Choose 1°, 0.1°, or 0.01° from the step selector and tap either rotation arrow. Tap Pivot again to cancel pivot picking. The selector affects arrow buttons; desktop shortcuts retain their existing increments.
 - Double-click on any segment or polygon edge inserts a new point on that edge.
 - Select mode supports click selection, Ctrl/Cmd additive selection, drag to move, and Delete/Backspace removal.
+- Choose Multi in Select tools to click or tap individual points, segments, shapes, or text to select or deselect them. Drag empty space to pan; choose Select to return to normal selection and dragging. Available on mobile and desktop.
+- On mobile, use Box in Select tools to select multiple objects, then open the actions menu (⋮) and tap Delete to remove the selection. Undo restores it.
 - Graph workspace includes major/minor grid lines and smooth zoom/pan.
 - Zoom controls include in/out, support views up to roughly 100 km wide on a 1000 px canvas, and the reset button always shows the current zoom percentage. Zoom remains bounded to preserve browser rendering precision.
 - Undo/Redo with keyboard shortcuts.
@@ -53,7 +55,7 @@ bun run dev:bun
 - Text mode uses an inline editor on the canvas; double-click text to edit.
 - Midpoint mode previews midpoint on hover and inserts midpoint on click.
 - Segment lengths are shown (toggleable in settings).
-- Selecting polygons shows compact Area and Perimeter lines. Area is decomposed into hectares, remaining ares, and remaining sqm (for example, 12,345.67 sqm is 1 ha 23 a 45.67 sqm), followed by total cents and sqft in brackets. Multiple selections show summed individual totals (overlap and shared boundaries count per shape). Area metrics are no longer drawn on the canvas; point labels and edge lengths remain.
+- Selecting polygons shows compact Area and Perimeter lines. Area is decomposed into hectares, remaining ares, and remaining sqm (for example, 12,345.67 sqm is 1 ha 23 a 45.67 sqm), with total cents and sqft in brackets on a separate line. Multiple selections show summed individual totals (overlap and shared boundaries count per shape). Area metrics are no longer drawn on the canvas; point labels and edge lengths remain.
 - Settings panel includes persistent show/hide controls for grid, values, points, labels, text, segments, shapes, and angle annotations.
 - Background image overlay: load a raster image (PNG/JPEG/GIF/WEBP/BMP), adjust opacity, fit it to the current view, or align it with X/Y/Width fields. The image is saved with the diagram (JSON, SVG, autosave) and participates in undo/redo.
 - Import/Export supports JSON and SVG (with embedded geometry metadata for SVG round-trip).
@@ -75,7 +77,7 @@ bun run dev:bun
 - + / -: Zoom in / out
 - Shift + + / -: Coarse zoom (1.5x)
 - Alt + + / -: Fine zoom (1.05x)
-- 1..9, 0: Switch modes in toolbar order
+- 1..9, 0: Switch the original drawing modes; choose Multi from Select tools
 
 ## Test
 
