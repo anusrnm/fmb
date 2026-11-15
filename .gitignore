@@ -86,10 +86,7 @@ Thumbs.db
 *.swp
 *~
 
-# Deno Cache directory (when using project-local DENO_DIR)
-.deno/
-
-# Deno coverage reports
+# Coverage reports
 coverage/
 *.lcov
 

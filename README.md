@@ -6,23 +6,25 @@ A graph-first, single-page field geometry editor with drawing tools, selection w
 
 No app server is required. Open [index.html](index.html) directly in a browser.
 
-Optional local server (if your browser blocks file imports from local files):
+Run the Node.js server if your browser blocks file imports from local files:
 
 ```bash
-python -m http.server 8000
-```
-or
-```bash
-deno run --allow-env --allow-net --allow-read main.ts
+npm start
 ```
 
-With Bun:
+For watch mode during development:
+
+```bash
+npm run dev
+```
+
+Alternatively, run with Bun:
 
 ```bash
 bun run start:bun
 ```
 
-For watch mode during development:
+Or use Bun's watch mode:
 
 ```bash
 bun run dev:bun

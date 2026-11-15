@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const port = Number(process.env.PORT ?? "8000");
 const rootDir = process.cwd();
@@ -14,7 +14,10 @@ function getFilePath(pathname: string): string | null {
   }
 
   const filePath = resolve(rootDir, relativePath);
-  return filePath === rootDir || filePath.startsWith(`${rootDir}/`) ? filePath : null;
+  const pathFromRoot = relative(rootDir, filePath);
+  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)
+    ? null
+    : filePath;
 }
 
 export async function handler(request: Request): Promise<Response> {

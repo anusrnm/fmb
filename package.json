@@ -4,11 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "node main.js",
+    "dev": "node --watch main.js",
     "dev:bun": "bun --watch bun.ts",
     "start:bun": "bun bun.ts",
     "test:unit": "c8 --all --include=geometry.js --include=coordinates.js --include=core.js --include=dom.js --include=history.js --include=sessions.js --check-coverage --lines 90 --functions 90 --branches 90 --statements 90 node --test test/unit/**/*.test.mjs",
+    "test:server": "node --test test/server.test.mjs",
     "test:e2e": "playwright test",
-    "test": "npm run test:unit && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:server && npm run test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
