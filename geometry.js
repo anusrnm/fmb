@@ -65,13 +65,16 @@ export function transformPoint(point, pivot, operation) {
 
 export function areaConversions(areaSqm) {
   const acres = areaSqm / 4046.8564224;
+  const sqft = areaSqm * 10.76391041671;
   return {
     hectares: areaSqm / 10000,
     ares: areaSqm / 100,
     sqm: areaSqm,
     acres,
     cents: acres * 100,
-    sqft: areaSqm * 10.76391041671,
+    sqft,
+    plots: sqft / 2400,
+    pits: sqft / 144,
   };
 }
 

@@ -94,6 +94,8 @@ test("areaConversions converts square metres to all supported units", () => {
   assert.ok(Math.abs(result.acres - 2.4710538147) < 1e-6);
   assert.ok(Math.abs(result.cents - 247.10538147) < 1e-6);
   assert.ok(Math.abs(result.sqft - 107639.1041671) < 1e-3);
+  assert.ok(Math.abs(result.plots - 44.8496267363) < 1e-6);
+  assert.ok(Math.abs(result.pits - 747.4937789382) < 1e-6);
 });
 
 test("decomposeArea splits hectares, ares and square metres with rounding carry", () => {

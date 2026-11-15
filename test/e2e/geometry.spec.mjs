@@ -54,7 +54,7 @@ test("shape details show selected metrics without canvas area labels and update 
   });
   await expect(page.locator("#shape-details")).toBeVisible();
   const metrics = await page.locator("#shape-details-values dd").allTextContents();
-  expect(metrics).toEqual(["0 ha 0 a 16 sqm", "(0.395 cents, 172.22 sqft)", "16 m"]);
+  expect(metrics).toEqual(["0 ha 0 a 16 sqm", "(0.395 cents, 172.22 sqft, 0.072 plots, 1.196 pits)", "16 m"]);
   const areaBox = await page.locator("#shape-details-values dd").first().boundingBox();
   const conversionsBox = await page.locator("#shape-details-values dd.area-conversions").boundingBox();
   expect(conversionsBox.y).toBeGreaterThanOrEqual(areaBox.y + areaBox.height);
@@ -78,14 +78,14 @@ test("shape details show selected metrics without canvas area labels and update 
   await page.locator("#points-output").fill("2, 3\n4, 3\n4, 5\n2, 5");
   await page.locator("#draw-points-btn").click();
   await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 4 sqm");
-  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.099 cents, 43.06 sqft)");
+  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.099 cents, 43.06 sqft, 0.018 plots, 0.299 pits)");
   await page.locator("#undo-btn").click();
   await expect(page.locator("#shape-details")).toBeHidden();
   await page.locator("#graph").click({
     position: { x: box.width / 2 + 4 * 32, y: box.height / 2 - 5 * 32 },
   });
   await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 16 sqm");
-  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.395 cents, 172.22 sqft)");
+  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.395 cents, 172.22 sqft, 0.072 plots, 1.196 pits)");
   await page.locator("#redo-btn").click();
   await expect(page.locator("#shape-details")).toBeHidden();
   await page.locator("#graph").click({ position: { x: box.width - 120, y: box.height - 160 } });
@@ -97,13 +97,60 @@ test("shape details sum individual areas and perimeters for overlapping selectio
   await selectBothRectangles(page);
   await expect(page.locator("#shape-details-title")).toHaveText("2 Shapes — Totals");
   await expect(page.locator("#shape-details-values dd").first()).toHaveText("0 ha 0 a 32 sqm");
-  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.791 cents, 344.45 sqft)");
+  await expect(page.locator("#shape-details-values dd.area-conversions")).toHaveText("(0.791 cents, 344.45 sqft, 0.144 plots, 2.392 pits)");
   await expect(page.locator("#shape-details-values dd").last()).toHaveText("32 m");
   await expect(page.locator("#shape-details-note")).toBeVisible();
   await expect(page.locator("#graph .area-metric-text")).toHaveCount(0);
   await expect(page.locator("#graph .segment-length-text").first()).toBeVisible();
   await page.keyboard.press("Delete");
   await expect(page.locator("#shape-details")).toBeHidden();
+});
+
+test("length unit preference persists and labels lengths in feet", async ({ page }) => {
+  await page.getByTitle("Settings").click();
+  const feetToggle = page.getByLabel("Show lengths and coordinates in feet", { exact: true });
+  await expect(feetToggle).not.toBeChecked();
+  await feetToggle.check();
+  await expect(page.locator("#graph .segment-length-text").first()).toHaveText(/ ft$/);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "FMB Studio" })).toBeVisible();
+  await page.getByTitle("Settings").click();
+  await expect(page.getByLabel("Show lengths and coordinates in feet", { exact: true })).toBeChecked();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.locator("#graph .segment-length-text").first()).toHaveText(/ ft$/);
+});
+
+test("feet display converts point coordinates and grid values", async ({ page }) => {
+  const pointLabel = page.locator("#graph .point-label-text").first();
+  const gridLabel = page.locator("#graph .grid-value-text").first();
+  await expect(pointLabel).toHaveText("P1 (-8, -4)");
+  const metersGridValue = Number(await gridLabel.textContent());
+
+  await page.getByTitle("Settings").click();
+  await page.getByLabel("Show lengths and coordinates in feet", { exact: true }).check();
+  await expect(pointLabel).toHaveText("P1 (-26.25, -13.12)");
+  const feetGridValue = Number(await gridLabel.textContent());
+  expect(feetGridValue).toBeCloseTo(metersGridValue / 0.3048, 2);
+});
+
+test("side-length input uses the selected display unit", async ({ page }) => {
+  await page.getByTitle("Settings").click();
+  await page.getByLabel("Show lengths and coordinates in feet", { exact: true }).check();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByTitle("Plot by side lengths").click();
+  await expect(page.getByLabel("Side lengths (ft)", { exact: true })).toBeVisible();
+  await page.getByLabel("Side lengths (ft)", { exact: true }).fill("3, 4, 5");
+  await page.getByRole("button", { name: "Draw polygon" }).click();
+
+  const points = (await exportDiagram(page)).points.slice(-3);
+  const lengths = points.map((point, index) => {
+    const next = points[(index + 1) % points.length];
+    return Math.hypot(point.x - next.x, point.y - next.y);
+  });
+  expect(lengths[0]).toBeCloseTo(3 * 0.3048, 2);
+  expect(lengths[1]).toBeCloseTo(4 * 0.3048, 2);
+  expect(lengths[2]).toBeCloseTo(5 * 0.3048, 2);
 });
 
 async function importTransformNetwork(page, lockedPointId = null) {

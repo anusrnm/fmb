@@ -27,6 +27,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const THEME_STORAGE_KEY = "fmb-theme";
 const DISPLAY_SETTINGS_STORAGE_KEY = "fmb-display-settings";
 const SESSIONS_INDEX_STORAGE_KEY = "fmb-sessions";
+const METERS_PER_FOOT = 0.3048;
 // Single-document key from before multi-session support; read once, then migrated away.
 const LEGACY_AUTOSAVE_STORAGE_KEY = "fmb-autosave-draft";
 const MIN_SCALE = 0.01;
@@ -88,6 +89,7 @@ let cachedGridLayer = null;
 let historyActions = [];
 let lastAutosaveSnapshot = "";
 let sessionIndex = { activeId: "", sessions: [] };
+let showLengthsInFeet = false;
 // Per-session undo stacks for this page load only; not persisted.
 let sessionHistoryStash = new Map();
 let contextMenuEdgePick = null;
@@ -136,6 +138,30 @@ function getCssVar(name, fallback) {
 
 function polygonPerimeter(pointIds) {
   return core.polygonPerimeter(state, pointIds);
+}
+
+function lengthUnitLabel() {
+  return showLengthsInFeet ? "ft" : "m";
+}
+
+function lengthToDisplayUnits(length) {
+  return showLengthsInFeet ? length / METERS_PER_FOOT : length;
+}
+
+function lengthToMeters(length) {
+  return showLengthsInFeet ? length * METERS_PER_FOOT : length;
+}
+
+function formatCoordinate(coordinate) {
+  return round2(lengthToDisplayUnits(coordinate));
+}
+
+function formatPointCoordinates(point) {
+  return `(${formatCoordinate(point.x)}, ${formatCoordinate(point.y)})`;
+}
+
+function formatLength(length) {
+  return `${round2(lengthToDisplayUnits(length))} ${lengthUnitLabel()}`;
 }
 
 function readSessionIndex() {
@@ -440,6 +466,7 @@ function saveDisplaySettings() {
       snapToIntersections: state.snapToIntersections,
       snapAngleStep: state.snapAngleStep,
       snapAngleStepDegrees: state.snapAngleStepDegrees,
+      showLengthsInFeet,
     })
   );
 }
@@ -474,6 +501,9 @@ function loadDisplaySettings() {
     if (Number.isFinite(Number(parsed.snapAngleStepDegrees))) {
       state.snapAngleStepDegrees = clamp(Math.round(Number(parsed.snapAngleStepDegrees)), 1, 180);
     }
+    if (typeof parsed.showLengthsInFeet === "boolean") {
+      showLengthsInFeet = parsed.showLengthsInFeet;
+    }
   } catch {
     // Ignore corrupt local values and keep defaults.
   }
@@ -494,6 +524,7 @@ function syncDisplayControlsToState() {
   ui.showTextToggle.checked = state.display.showText;
   ui.showPolygonsToggle.checked = state.display.showPolygons;
   ui.showAnglesToggle.checked = state.display.showAngles;
+  ui.showLengthsInFeetToggle.checked = showLengthsInFeet;
   ui.showMajorGridToggle.checked = state.display.showMajorGrid;
   ui.showMinorGridToggle.checked = state.display.showMinorGrid;
   ui.showGridValuesToggle.checked = state.display.showGridValues;
@@ -516,6 +547,7 @@ function resetDisplaySettings() {
   state.snapToIntersections = false;
   state.snapAngleStep = false;
   state.snapAngleStepDegrees = 15;
+  showLengthsInFeet = false;
   for (const key of Object.keys(state.display)) {
     state.display[key] = true;
   }
@@ -1601,6 +1633,7 @@ function drawGrid(parentGroup) {
     state.display.showMajorGrid ? "1" : "0",
     state.display.showMinorGrid ? "1" : "0",
     state.display.showGridValues ? "1" : "0",
+    showLengthsInFeet ? "ft" : "m",
     minorColor,
     majorColor,
     axisColor,
@@ -1642,7 +1675,7 @@ function drawGrid(parentGroup) {
     (isMajor ? majorGroup : gridGroup).append(line);
 
     if (isMajor && state.display.showGridValues && Math.abs(x) > 1e-8) {
-      const label = makeText(screenA.x + 2, worldToScreen({ x, y: 0 }).y - 4, String(round2(x)), {
+      const label = makeText(screenA.x + 2, worldToScreen({ x, y: 0 }).y - 4, String(formatCoordinate(x)), {
         class: "grid-value-text",
       });
       valuesGroup.append(label);
@@ -1664,7 +1697,7 @@ function drawGrid(parentGroup) {
     (isMajor ? majorGroup : gridGroup).append(line);
 
     if (isMajor && state.display.showGridValues && Math.abs(y) > 1e-8) {
-      const label = makeText(worldToScreen({ x: 0, y }).x + 4, screenA.y - 2, String(round2(y)), {
+      const label = makeText(worldToScreen({ x: 0, y }).x + 4, screenA.y - 2, String(formatCoordinate(y)), {
         class: "grid-value-text",
       });
       valuesGroup.append(label);
@@ -1917,8 +1950,8 @@ function updateShapeDetails() {
   const title = polygons.length === 1 ? "Shape Details" : `${polygons.length} Shapes — Totals`;
   const metrics = [
     ["Area", `${parts.hectares} ha ${parts.ares} a ${parts.sqm} sqm`],
-    ["Area conversions", `(${round3(converted.cents)} cents, ${round2(converted.sqft)} sqft)`],
-    ["Perimeter", `${round2(perimeter)} m`],
+    ["Area conversions", `(${round3(converted.cents)} cents, ${round2(converted.sqft)} sqft, ${round3(converted.plots)} plots, ${round3(converted.pits)} pits)`],
+    ["Perimeter", formatLength(perimeter)],
   ];
   const signature = JSON.stringify([title, metrics]);
   if (ui.shapeDetailsValues.dataset.signature === signature) {
@@ -2028,7 +2061,7 @@ function renderNow() {
         const midpoint = { x: (aScreen.x + bScreen.x) * 0.5, y: (aScreen.y + bScreen.y) * 0.5 };
         const edgeLength = distanceWorld(aPoint, bPoint);
         labelsGroup.append(
-          makeText(midpoint.x, midpoint.y - 5, `${round2(edgeLength)} m`, {
+          makeText(midpoint.x, midpoint.y - 5, formatLength(edgeLength), {
             class: "segment-length-text",
           })
         );
@@ -2074,7 +2107,7 @@ function renderNow() {
         const bScreen = worldToScreen(bPoint);
         const midpoint = { x: (aScreen.x + bScreen.x) * 0.5, y: (aScreen.y + bScreen.y) * 0.5 };
         labelsGroup.append(
-          makeText(midpoint.x, midpoint.y - 5, `${round2(distanceWorld(aPoint, bPoint))} m`, {
+          makeText(midpoint.x, midpoint.y - 5, formatLength(distanceWorld(aPoint, bPoint)), {
             class: "segment-length-text",
           })
         );
@@ -2115,7 +2148,7 @@ function renderNow() {
       const midpoint = { x: (aScreen.x + bScreen.x) * 0.5, y: (aScreen.y + bScreen.y) * 0.5 };
       const length = distanceWorld(a, b);
       labelsGroup.append(
-        makeText(midpoint.x, midpoint.y - 6, `${round2(length)} m`, {
+        makeText(midpoint.x, midpoint.y - 6, formatLength(length), {
           class: "segment-length-text",
         })
       );
@@ -2151,7 +2184,7 @@ function renderNow() {
     }
     if (state.display.showLabels) {
       labelsGroup.append(
-        makeText(screenPoint.x + 8, screenPoint.y - 8, `${pointLabel} (${round2(point.x)}, ${round2(point.y)})`, {
+        makeText(screenPoint.x + 8, screenPoint.y - 8, `${pointLabel} ${formatPointCoordinates(point)}`, {
           class: selected ? "point-label-text point-label-selected" : "point-label-text",
         })
       );
@@ -2445,13 +2478,13 @@ async function tryNumericSegmentInput() {
     return true;
   }
 
-  const input = await openNumericInputDialog("Segment: length and angle in degrees (length, angle)");
+  const input = await openNumericInputDialog(`Segment: length (${lengthUnitLabel()}) and angle in degrees (length, angle)`);
   if (input.cancelled) {
     setStatus("Numeric segment input cancelled.");
     return true;
   }
 
-  const target = pointFromPolar(firstPoint, input.value.length, input.value.angleDeg);
+  const target = pointFromPolar(firstPoint, lengthToMeters(input.value.length), input.value.angleDeg);
   const secondPoint = addPoint(target.x, target.y);
   const segment = addSegment(firstPoint.id, secondPoint.id, "segment");
   state.construction = null;
@@ -2465,7 +2498,7 @@ async function tryNumericSegmentInput() {
 
   pushHistory("Create segment from numeric input");
   render();
-  setStatus(`Segment created from numeric input (${round2(input.value.length)} @ ${round2(input.value.angleDeg)}deg).`, "success");
+  setStatus(`Segment created from numeric input (${formatLength(lengthToMeters(input.value.length))} @ ${round2(input.value.angleDeg)}deg).`, "success");
   return true;
 }
 
@@ -2480,13 +2513,13 @@ async function tryNumericPolygonVertexInput() {
     return true;
   }
 
-  const input = await openNumericInputDialog("Polygon edge: length and angle in degrees (length, angle)");
+  const input = await openNumericInputDialog(`Polygon edge: length (${lengthUnitLabel()}) and angle in degrees (length, angle)`);
   if (input.cancelled) {
     setStatus("Numeric polygon input cancelled.");
     return true;
   }
 
-  const target = pointFromPolar(previousPoint, input.value.length, input.value.angleDeg);
+  const target = pointFromPolar(previousPoint, lengthToMeters(input.value.length), input.value.angleDeg);
   const point = addPoint(target.x, target.y);
   state.polygonDraft.push(point.id);
   state.polygonDraftCreatedPointIds.add(point.id);
@@ -2519,7 +2552,7 @@ function handleModeAction(screen, world, event = null) {
     state.selection.points.add(point.id);
     pushHistory("Place point");
     render();
-    setStatus(`Point placed at (${round2(point.x)}, ${round2(point.y)}).`, "success");
+    setStatus(`Point placed at ${formatPointCoordinates(point)}.`, "success");
     return;
   }
 
@@ -2544,7 +2577,7 @@ function handleModeAction(screen, world, event = null) {
 
     pushHistory("Insert midpoint");
     render();
-    setStatus(`Midpoint inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`, "success");
+    setStatus(`Midpoint inserted at ${formatPointCoordinates(inserted)}.`, "success");
     return;
   }
 
@@ -3369,7 +3402,7 @@ function pointsToCoordinateList() {
   return points
     .map((point, index) => {
       const displayIndex = pointDisplayIndex.get(point.id) || index + 1;
-      return `P${displayIndex}, ${round2(point.x)}, ${round2(point.y)}`;
+      return `P${displayIndex}, ${formatCoordinate(point.x)}, ${formatCoordinate(point.y)}`;
     })
     .join("\n");
 }
@@ -3623,6 +3656,10 @@ function drawShapeFromCoordinateInput() {
   }
 
   parsed = normalizeCoordinateLoop(parsed);
+  parsed = parsed.map((point) => ({
+    x: lengthToMeters(point.x),
+    y: lengthToMeters(point.y),
+  }));
 
   if (parsed.length === 0) {
     setStatus("Enter at least one coordinate row.", "warning");
@@ -3738,7 +3775,7 @@ function openTransformDialog(polygonId) {
   ui.transformAxis.value = "horizontal";
   ui.transformShapeSummary.textContent =
     `${network.pointIds.size} points, ${network.polygons.length} polygons, ${network.segments.length} segments. ` +
-    `First-vertex pivot: (${round2(network.pivot.x)}, ${round2(network.pivot.y)}).`;
+    `First-vertex pivot: ${formatPointCoordinates(network.pivot)}.`;
   updateTransformFields();
   ui.transformShapeDialog.showModal();
   ui.transformDx.focus();
@@ -3832,8 +3869,10 @@ function openPolygonLengthsDialog(polygon = null) {
     const point = getPointById(id);
     const next = getPointById(polygon.pointIds[(index + 1) % polygon.pointIds.length]);
     const length = distanceWorld(point, next);
-    return { length, display: length > 0 && length < 0.01 ? length.toPrecision(2) : length.toFixed(2) };
+    const displayLength = lengthToDisplayUnits(length);
+    return { length, display: displayLength > 0 && displayLength < 0.01 ? displayLength.toPrecision(2) : displayLength.toFixed(2) };
   }) : [];
+  ui.polygonLengthsInputLabel.textContent = showLengthsInFeet ? "Side lengths (ft)" : "Side lengths";
   ui.polygonLengthsInput.value = editingPolygonLengths.map((side) => side.display).join(", ");
   ui.polygonLengthsError.hidden = true;
   ui.polygonLengthsDialog.showModal();
@@ -3855,7 +3894,13 @@ function drawPolygonFromLengths() {
       lengths.forEach((length, index) => {
         if (length === Number(editingPolygonLengths[index].display)) {
           lengths[index] = editingPolygonLengths[index].length;
+        } else {
+          lengths[index] = lengthToMeters(length);
         }
+      });
+    } else {
+      lengths.forEach((length, index) => {
+        lengths[index] = lengthToMeters(length);
       });
     }
     points = polygonFromSideLengths(lengths);
@@ -3924,7 +3969,7 @@ function insertPolygonVertexOnEdge(edgePick) {
   normalizeGeometry();
   pushHistory("Insert polygon vertex");
   render();
-  setStatus(`Polygon vertex inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`, "success");
+  setStatus(`Polygon vertex inserted at ${formatPointCoordinates(inserted)}.`, "success");
   return true;
 }
 
@@ -3980,7 +4025,7 @@ function removePolygonVertex(pointId, polygonId = null) {
   normalizeGeometry();
   pushHistory("Remove polygon vertex");
   render();
-  setStatus(`Removed vertex at (${round2(point.x)}, ${round2(point.y)}).`, "success");
+  setStatus(`Removed vertex at ${formatPointCoordinates(point)}.`, "success");
   return true;
 }
 
@@ -4277,7 +4322,7 @@ function initializeDemoGeometry() {
   const p4 = addPoint(-5, 9);
   addPolygon([p1.id, p2.id, p3.id, p4.id]);
   addSegment(p1.id, p3.id, "segment");
-  addText({ x: 1, y: 2 }, "Title Goes Here", 18);
+  addText({ x: 10, y: 10 }, "Title Goes Here", 18);
 }
 
 function isEditingTextInput(target) {
@@ -4353,7 +4398,7 @@ async function handleKeyDown(event) {
     state.selection.points.add(inserted.id);
     pushHistory("Insert point on edge");
     render();
-    setStatus(`Point inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`, "success");
+    setStatus(`Point inserted at ${formatPointCoordinates(inserted)}.`, "success");
     return;
   }
 
@@ -4537,7 +4582,7 @@ function handleDoubleClick(event) {
   state.selection.points.add(inserted.id);
   pushHistory("Insert point on edge");
   render();
-  setStatus(`Point inserted at (${round2(inserted.x)}, ${round2(inserted.y)}).`);
+  setStatus(`Point inserted at ${formatPointCoordinates(inserted)}.`);
 }
 
 function wireEvents() {
@@ -4718,6 +4763,11 @@ function wireEvents() {
   addTrackedEvent(ui.showLabelsToggle, "change", (event) => updateDisplaySetting("showLabels", event.target.checked));
   addTrackedEvent(ui.showSegmentsToggle, "change", (event) => updateDisplaySetting("showSegments", event.target.checked));
   addTrackedEvent(ui.showSegmentLengthsToggle, "change", (event) => updateDisplaySetting("showSegmentLengths", event.target.checked));
+  addTrackedEvent(ui.showLengthsInFeetToggle, "change", () => {
+    showLengthsInFeet = ui.showLengthsInFeetToggle.checked;
+    saveDisplaySettings();
+    render();
+  });
   addTrackedEvent(ui.showTextToggle, "change", (event) => updateDisplaySetting("showText", event.target.checked));
   addTrackedEvent(ui.showPolygonsToggle, "change", (event) => updateDisplaySetting("showPolygons", event.target.checked));
   addTrackedEvent(ui.showAnglesToggle, "change", (event) => updateDisplaySetting("showAngles", event.target.checked));

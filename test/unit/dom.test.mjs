@@ -40,6 +40,7 @@ test("queryUi resolves elements by id and returns them", () => {
   assert.deepEqual(ui.polygonSubtractBtn, { id: "polygon-subtract-btn" });
   assert.deepEqual(ui.polygonIntersectBtn, { id: "polygon-intersect-btn" });
   assert.deepEqual(ui.resetSettingsBtn, { id: "reset-settings-btn" });
+  assert.deepEqual(ui.showLengthsInFeetToggle, { id: "show-lengths-in-feet-toggle" });
   assert.deepEqual(ui.inlineTextEditor, { id: "inline-text-editor" });
   assert.deepEqual(ui.vertexEditHint, { id: "vertex-edit-hint" });
   assert.ok(doc.byId.includes("export-json-btn"));
